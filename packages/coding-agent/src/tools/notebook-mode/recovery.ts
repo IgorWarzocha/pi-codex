@@ -67,7 +67,7 @@ export class NotebookRecoveryController {
 		const retained = readRetainedProjectBindings(identity, this.maxBytes);
 		const pinned = retained.filter(({ pinned: isPinned }) => isPinned).length;
 		const activeCell = await this.host.stopWithoutCheckpoint();
-		removeNotebookCheckpoint(identity);
+		await removeNotebookCheckpoint(identity);
 		await this.host.startClean(extension, signal);
 		await this.host.checkpointEmpty();
 		return {

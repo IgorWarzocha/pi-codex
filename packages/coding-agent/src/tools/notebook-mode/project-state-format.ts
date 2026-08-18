@@ -77,7 +77,8 @@ export function projectStatePaths(project: string, agentDir: string) {
 
 export function readProjectStateManifest(path: string): ProjectStateManifest | undefined {
 	try {
-		if (statSync(path).size > MAX_PROJECT_MANIFEST_BYTES) return undefined;
+		const stat = lstatSync(path);
+		if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_PROJECT_MANIFEST_BYTES) return undefined;
 		const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
 		if (!isRecord(value) || value["schema"] !== PROJECT_STATE_SCHEMA) return undefined;
 		if (

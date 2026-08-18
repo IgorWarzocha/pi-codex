@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { test } from "vitest";
 import { garbageCollectSupersededNotebookCheckpoints } from "../src/tools/notebook-mode/checkpoint.ts";
 
-test("Notebook checkpoint GC removes only superseded epochs from the same session", () => {
+test("Notebook checkpoint GC removes only superseded epochs from the same session", async () => {
 	const agentDir = join(tmpdir(), `pi-notebook-gc-${process.pid}-${Date.now()}`);
 	const project = resolve(agentDir, "project");
 	const currentSession = "session-a\0current";
@@ -15,8 +15,8 @@ test("Notebook checkpoint GC removes only superseded epochs from the same sessio
 	const otherSession = writeCheckpoint(agentDir, project, "session-b\0old");
 	mkdirSync(current, { recursive: true });
 	try {
-		garbageCollectSupersededNotebookCheckpoints({ project, session: currentSession, agentDir });
-		assert.equal(existsSync(superseded), false);
+		await garbageCollectSupersededNotebookCheckpoints({ project, session: currentSession, agentDir });
+		assert.equal(existsSync(join(superseded, "checkpoint.json")), false);
 		assert.equal(existsSync(otherSession), true);
 		assert.equal(existsSync(current), true);
 	} finally {

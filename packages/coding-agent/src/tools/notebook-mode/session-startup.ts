@@ -108,7 +108,7 @@ export async function startNotebookSession(options: {
 		}
 		const exampleNames = await installNotebookExamples(kernel, signal);
 		for (const name of exampleNames) baselineNames.add(name);
-		garbageCollectSupersededNotebookCheckpoints(checkpointIdentity);
+		await garbageCollectSupersededNotebookCheckpoints(checkpointIdentity);
 		const npmNotice = formatNotebookNpmImportsNotice(readNotebookNpmImports(checkpointIdentity));
 		const exampleNotice =
 			exampleNames.length === 2

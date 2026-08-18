@@ -219,6 +219,9 @@ async function commitCandidate(options: {
 	pins?: ProjectStatePinUpdate | undefined;
 }): Promise<{ manifest?: ProjectStateManifest | undefined; baseline: ProjectStateBaseline; conflicts: string[] }> {
 	const current = readProjectStateManifest(options.paths.manifest);
+	if (current && current.project !== resolve(options.identity.project)) {
+		throw new Error("Project notebook identity is incompatible; the existing state was preserved");
+	}
 	if (
 		current &&
 		current.entries.length > 0 &&

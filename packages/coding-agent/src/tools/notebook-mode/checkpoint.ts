@@ -8,6 +8,7 @@ import {
 	type NotebookCheckpointIdentity,
 } from "./checkpoint-format.ts";
 import { checkpointSource, restoreSource } from "./checkpoint-runtime.ts";
+import { acquireDirectoryLock } from "./directory-lock.ts";
 import type { DenoJupyterKernel } from "./jupyter-kernel.ts";
 import {
 	MAX_PROJECT_ENTRIES,
@@ -22,6 +23,8 @@ const NOTEBOOK_CHECKPOINT_MIN_BYTES = 8 * 1024 * 1024;
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const PAYLOAD_NAME = /^checkpoint-[0-9a-f-]+\.bin$/;
 const CHECKPOINT_DIRECTORY_NAME = /^[0-9a-f]{64}$/;
+const CHECKPOINT_LOCK_STALE_MS = 5 * 60_000;
+const CHECKPOINT_LOCK_WAIT_MS = 5_000;
 
 export type { NotebookCheckpointIdentity } from "./checkpoint-format.ts";
 
@@ -36,7 +39,7 @@ export function resolveNotebookCheckpointMaxBytes(maxHeapMiB: number): number {
 	return Math.min(NOTEBOOK_CHECKPOINT_MAX_BYTES, Math.max(NOTEBOOK_CHECKPOINT_MIN_BYTES, heapRelative));
 }
 
-export function garbageCollectSupersededNotebookCheckpoints(identity: NotebookCheckpointIdentity): void {
+export async function garbageCollectSupersededNotebookCheckpoints(identity: NotebookCheckpointIdentity): Promise<void> {
 	const current = checkpointPaths(identity).directory;
 	const sessions = resolve(current, "..");
 	const family = sessionFamily(identity.session);
@@ -50,14 +53,17 @@ export function garbageCollectSupersededNotebookCheckpoints(identity: NotebookCh
 		if (!entry.isDirectory() || !CHECKPOINT_DIRECTORY_NAME.test(entry.name)) continue;
 		const directory = join(sessions, entry.name);
 		if (directory === current) continue;
-		const manifest = readManifest(join(directory, "checkpoint.json"));
-		if (!manifest || manifest.project !== identity.project || sessionFamily(manifest.session) !== family) continue;
-		rmSync(directory, { recursive: true, force: true });
+		await withCheckpointLock(directory, () => {
+			const manifest = readManifest(join(directory, "checkpoint.json"));
+			if (!manifest || manifest.project !== identity.project || sessionFamily(manifest.session) !== family) return;
+			clearCheckpointFiles(directory);
+		});
 	}
 }
 
-export function removeNotebookCheckpoint(identity: NotebookCheckpointIdentity): void {
-	rmSync(checkpointPaths(identity).directory, { recursive: true, force: true });
+export async function removeNotebookCheckpoint(identity: NotebookCheckpointIdentity): Promise<void> {
+	const { directory } = checkpointPaths(identity);
+	await withCheckpointLock(directory, () => clearCheckpointFiles(directory));
 }
 
 export function notebookCheckpointBindingNames(identity: NotebookCheckpointIdentity, maxBytes: number): string[] {
@@ -79,38 +85,40 @@ export async function writeNotebookCheckpoint(
 ): Promise<CheckpointManifest> {
 	const paths = checkpointPaths(identity);
 	mkdirSync(paths.directory, { recursive: true });
-	const names = [...new Set(await kernel.complete("", 0))].sort();
-	const privateNames = names.filter((name) => !baselineNames.has(name) && !excludeNames.has(name));
-	if (privateNames.length > MAX_PROJECT_ENTRIES) {
-		throw new Error(`Notebook checkpoint exceeds ${MAX_PROJECT_ENTRIES} top-level values`);
-	}
-	if (privateNames.some((name) => Buffer.byteLength(name) > MAX_PROJECT_NAME_BYTES)) {
-		throw new Error(`Notebook checkpoint name exceeds ${MAX_PROJECT_NAME_BYTES} bytes`);
-	}
-	const skippedInvalid = privateNames
-		.filter((name) => !IDENTIFIER.test(name))
-		.map((name) => ({ name, reason: "unsupported identifier" }));
-	const candidates = privateNames.filter((name) => IDENTIFIER.test(name));
-	const payload = `checkpoint-${randomUUID()}.bin`;
-	const previousPayload = readManifest(paths.manifest)?.payload;
-	const source = checkpointSource({
-		candidates,
-		payloadPath: join(paths.directory, payload),
-		manifestPath: paths.manifest,
-		directory: paths.directory,
-		identity,
-		projectGeneration: projectBaseline.generation,
-		projectNames: projectBaseline.entries.map(({ name }) => name),
-		payload,
-		...(previousPayload ? { previousPayload } : {}),
-		skippedInvalid,
-		maxBytes,
+	return withCheckpointLock(paths.directory, async () => {
+		const names = [...new Set(await kernel.complete("", 0))].sort();
+		const privateNames = names.filter((name) => !baselineNames.has(name) && !excludeNames.has(name));
+		if (privateNames.length > MAX_PROJECT_ENTRIES) {
+			throw new Error(`Notebook checkpoint exceeds ${MAX_PROJECT_ENTRIES} top-level values`);
+		}
+		if (privateNames.some((name) => Buffer.byteLength(name) > MAX_PROJECT_NAME_BYTES)) {
+			throw new Error(`Notebook checkpoint name exceeds ${MAX_PROJECT_NAME_BYTES} bytes`);
+		}
+		const skippedInvalid = privateNames
+			.filter((name) => !IDENTIFIER.test(name))
+			.map((name) => ({ name, reason: "unsupported identifier" }));
+		const candidates = privateNames.filter((name) => IDENTIFIER.test(name));
+		const payload = `checkpoint-${randomUUID()}.bin`;
+		const previousPayload = readManifest(paths.manifest)?.payload;
+		const source = checkpointSource({
+			candidates,
+			payloadPath: join(paths.directory, payload),
+			manifestPath: paths.manifest,
+			directory: paths.directory,
+			identity,
+			projectGeneration: projectBaseline.generation,
+			projectNames: projectBaseline.entries.map(({ name }) => name),
+			payload,
+			...(previousPayload ? { previousPayload } : {}),
+			skippedInvalid,
+			maxBytes,
+		});
+		const result = await kernel.execute(source);
+		if (result.status !== "ok") throw new Error(`Notebook checkpoint failed: ${result.errorText ?? "unknown error"}`);
+		const manifest = readManifest(paths.manifest);
+		if (!manifest) throw new Error("Notebook checkpoint did not produce a valid manifest");
+		return manifest;
 	});
-	const result = await kernel.execute(source);
-	if (result.status !== "ok") throw new Error(`Notebook checkpoint failed: ${result.errorText ?? "unknown error"}`);
-	const manifest = readManifest(paths.manifest);
-	if (!manifest) throw new Error("Notebook checkpoint did not produce a valid manifest");
-	return manifest;
 }
 
 export async function restoreNotebookCheckpoint(
@@ -122,49 +130,56 @@ export async function restoreNotebookCheckpoint(
 ): Promise<NotebookCheckpointSummary> {
 	signal?.throwIfAborted();
 	const paths = checkpointPaths(identity);
-	if (!existsSync(paths.manifest)) return { restored: [], skipped: [] };
-	const manifest = readManifest(paths.manifest);
-	if (!manifest) return { restored: [], skipped: [], message: "Notebook checkpoint was invalid and was not restored" };
-	if (
-		manifest.schema !== CHECKPOINT_SCHEMA ||
-		manifest.project !== identity.project ||
-		manifest.session !== identity.session
-	) {
-		return {
-			restored: [],
-			skipped: manifest.skipped,
-			message: "Notebook checkpoint identity was incompatible and was not restored",
-		};
-	}
-	const payloadPath = join(paths.directory, manifest.payload);
-	if (!isValidCheckpointPayload(manifest, payloadPath, maxBytes)) {
-		return {
-			restored: [],
-			skipped: manifest.skipped,
-			message: "Notebook checkpoint payload was missing or invalid and was not restored",
-		};
-	}
-	signal?.throwIfAborted();
-	const excluded = sessionCheckpointProjectExclusions(manifest, projectBaseline);
-	const result = await kernel.execute(restoreSource(manifest, payloadPath, excluded), { signal });
-	if (result.status !== "ok") {
-		return {
-			restored: [],
-			skipped: manifest.skipped,
-			message: `Notebook checkpoint was incompatible and was not restored: ${result.errorText ?? "unknown error"}`,
-		};
-	}
-	const restored = manifest.entries.map((entry) => entry.name).filter((name) => !excluded.has(name));
-	return {
-		restored,
-		skipped: manifest.skipped,
-		...(excluded.size > 0
-			? {
-					message:
-						"Session checkpoint came from an older project generation; current project bindings took precedence",
-				}
-			: {}),
-	};
+	return withCheckpointLock(
+		paths.directory,
+		async () => {
+			if (!existsSync(paths.manifest)) return { restored: [], skipped: [] };
+			const manifest = readManifest(paths.manifest);
+			if (!manifest)
+				return { restored: [], skipped: [], message: "Notebook checkpoint was invalid and was not restored" };
+			if (
+				manifest.schema !== CHECKPOINT_SCHEMA ||
+				manifest.project !== identity.project ||
+				manifest.session !== identity.session
+			) {
+				return {
+					restored: [],
+					skipped: manifest.skipped,
+					message: "Notebook checkpoint identity was incompatible and was not restored",
+				};
+			}
+			const payloadPath = join(paths.directory, manifest.payload);
+			if (!isValidCheckpointPayload(manifest, payloadPath, maxBytes)) {
+				return {
+					restored: [],
+					skipped: manifest.skipped,
+					message: "Notebook checkpoint payload was missing or invalid and was not restored",
+				};
+			}
+			signal?.throwIfAborted();
+			const excluded = sessionCheckpointProjectExclusions(manifest, projectBaseline);
+			const result = await kernel.execute(restoreSource(manifest, payloadPath, excluded), { signal });
+			if (result.status !== "ok") {
+				return {
+					restored: [],
+					skipped: manifest.skipped,
+					message: `Notebook checkpoint was incompatible and was not restored: ${result.errorText ?? "unknown error"}`,
+				};
+			}
+			const restored = manifest.entries.map((entry) => entry.name).filter((name) => !excluded.has(name));
+			return {
+				restored,
+				skipped: manifest.skipped,
+				...(excluded.size > 0
+					? {
+							message:
+								"Session checkpoint came from an older project generation; current project bindings took precedence",
+						}
+					: {}),
+			};
+		},
+		signal,
+	);
 }
 
 export function sessionCheckpointProjectExclusions(
@@ -187,6 +202,40 @@ function checkpointPaths(identity: NotebookCheckpointIdentity): { directory: str
 function sessionFamily(session: string): string {
 	const separator = session.indexOf("\0");
 	return separator === -1 ? session : session.slice(0, separator);
+}
+
+async function withCheckpointLock<T>(
+	directory: string,
+	operation: () => T | Promise<T>,
+	signal?: AbortSignal,
+): Promise<T> {
+	mkdirSync(directory, { recursive: true });
+	const lock = await acquireDirectoryLock(join(directory, "write.lock"), {
+		waitMs: CHECKPOINT_LOCK_WAIT_MS,
+		staleMs: CHECKPOINT_LOCK_STALE_MS,
+		pollMs: 50,
+		signal,
+	});
+	if (!lock) throw new Error("Notebook checkpoint lock became unavailable");
+	try {
+		return await operation();
+	} finally {
+		lock.release();
+	}
+}
+
+function clearCheckpointFiles(directory: string): void {
+	let names: string[];
+	try {
+		names = readdirSync(directory);
+	} catch {
+		return;
+	}
+	for (const name of names) {
+		if (name === "checkpoint.json" || PAYLOAD_NAME.test(name) || name.endsWith(".tmp")) {
+			rmSync(join(directory, name), { force: true });
+		}
+	}
 }
 
 function readManifest(path: string): CheckpointManifest | undefined {

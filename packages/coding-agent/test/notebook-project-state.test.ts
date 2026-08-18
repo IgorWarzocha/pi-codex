@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -41,6 +41,33 @@ test("project notebook manifests reject executable binding names", () => {
 				skipped: [],
 			}),
 		);
+		assert.equal(readProjectStateManifest(path), undefined);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("project notebook manifests reject symlinked metadata", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-notebook-project-symlink-"));
+	const target = join(root, "outside.json");
+	const path = join(root, "project.json");
+	try {
+		writeFileSync(
+			target,
+			JSON.stringify({
+				schema: PROJECT_STATE_SCHEMA,
+				project: "/project",
+				generation: "generation",
+				deno: "2.9.5",
+				v8: "test",
+				payload: "project-00000000-0000-0000-0000-000000000000.bin",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				sourceSession: "session",
+				entries: [],
+				skipped: [],
+			}),
+		);
+		symlinkSync(target, path);
 		assert.equal(readProjectStateManifest(path), undefined);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
