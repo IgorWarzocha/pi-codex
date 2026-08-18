@@ -21,7 +21,7 @@ import {
 import { CodeModeRuntime } from "../src/tools/code-mode/runtime.ts";
 import { scopeAllToolsToDeferredCustom } from "../src/tools/code-mode/tool-source.ts";
 import type { CustomToolDefinition, ProgrammaticCodeModeToolDefinition } from "../src/tools/code-mode/types.ts";
-import { CODE_MODE_TOOL_NAMES } from "../src/tools/runtime.ts";
+import { CODE_MODE_TOOL_NAMES, NOTEBOOK_MODE_TOOL_NAMES } from "../src/tools/runtime.ts";
 
 const codeModeModel: Model<"openai-codex-responses"> = {
 	id: "gpt-daybreak-blue-latest",
@@ -85,6 +85,23 @@ describe("Pi-Codex Code Mode", () => {
 		session.dispose();
 	});
 
+	it("exposes the persistent notebook surface only in Notebook Mode", async () => {
+		const session = (
+			await createAgentSession({
+				cwd: tempDir,
+				agentDir,
+				model: codeModeModel,
+				settingsManager: SettingsManager.inMemory({ executionMode: "notebook" }),
+				sessionManager: SessionManager.inMemory(tempDir),
+			})
+		).session;
+
+		expect(session.getActiveToolNames()).toEqual(NOTEBOOK_MODE_TOOL_NAMES);
+		expect(session.systemPrompt).toContain("exec is a persistent Deno/TypeScript Jupyter notebook");
+		expect(session.getToolDefinition("notebook")?.description).toContain("Control persistent notebook state");
+		session.dispose();
+	});
+
 	it("switches the native tool surface when execution mode changes", async () => {
 		const settingsManager = SettingsManager.inMemory();
 		const session = (
@@ -103,6 +120,8 @@ describe("Pi-Codex Code Mode", () => {
 		expect(session.getActiveToolNames()).not.toContain("exec");
 		await session.setExecutionMode("code");
 		expect(session.getActiveToolNames()).toEqual(CODE_MODE_TOOL_NAMES);
+		await session.setExecutionMode("notebook");
+		expect(session.getActiveToolNames()).toEqual(NOTEBOOK_MODE_TOOL_NAMES);
 		session.dispose();
 	});
 
@@ -156,7 +175,12 @@ describe("Pi-Codex Code Mode", () => {
 
 	it("runs extension preflights before nested invocation", async () => {
 		const events = createEventBus();
-		const runtime = new CodeModeRuntime({ agentDir, cwd: tempDir, getTools: () => [] });
+		const runtime = new CodeModeRuntime({
+			agentDir,
+			cwd: tempDir,
+			getTools: () => [],
+			getNotebookOptions: () => ({ agentDir, maxHeapMiB: 4096 }),
+		});
 		runtime.bindEvents(events);
 		let available: unknown;
 		events.on(PREFLIGHT_AVAILABLE_CHANNEL, (value) => {

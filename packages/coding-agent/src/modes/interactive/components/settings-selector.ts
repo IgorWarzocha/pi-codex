@@ -66,7 +66,7 @@ export interface SettingsConfig {
 	steeringMode: "all" | "one-at-a-time";
 	followUpMode: "all" | "one-at-a-time";
 	transport: Transport;
-	executionMode: "normal" | "code";
+	executionMode: "normal" | "code" | "notebook";
 	httpIdleTimeoutMs: number;
 	thinkingLevel: ThinkingLevel;
 	availableThinkingLevels: ThinkingLevel[];
@@ -104,7 +104,7 @@ export interface SettingsCallbacks {
 	onSteeringModeChange: (mode: "all" | "one-at-a-time") => void;
 	onFollowUpModeChange: (mode: "all" | "one-at-a-time") => void;
 	onTransportChange: (transport: Transport) => void;
-	onExecutionModeChange: (mode: "normal" | "code") => void;
+	onExecutionModeChange: (mode: "normal" | "code" | "notebook") => void;
 	onHttpIdleTimeoutMsChange: (timeoutMs: number) => void;
 	onThinkingLevelChange: (level: ThinkingLevel) => void;
 	onThemeChange: (theme: string) => void;
@@ -522,9 +522,10 @@ export class SettingsSelectorComponent extends Container {
 			{
 				id: "execution-mode",
 				label: "Execution mode",
-				description: "Code composes native tools through exec; Normal exposes each native tool directly",
+				description:
+					"Notebook keeps a persistent Deno/TypeScript kernel; Code composes tools in V8; Normal exposes tools directly",
 				currentValue: config.executionMode,
-				values: ["code", "normal"],
+				values: ["notebook", "code", "normal"],
 			},
 			{
 				id: "transport",
@@ -817,7 +818,7 @@ export class SettingsSelectorComponent extends Container {
 						callbacks.onTransportChange(newValue as Transport);
 						break;
 					case "execution-mode":
-						callbacks.onExecutionModeChange(newValue as "normal" | "code");
+						callbacks.onExecutionModeChange(newValue as "normal" | "code" | "notebook");
 						break;
 					case "http-idle-timeout": {
 						const choice = HTTP_IDLE_TIMEOUT_CHOICES.find((item) => item.label === newValue);

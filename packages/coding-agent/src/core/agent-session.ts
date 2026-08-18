@@ -48,6 +48,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
+import { appendNotebookTreeEpoch } from "../tools/code-mode/notebook-session.ts";
 import { type CodexExecutionMode, type CodexToolRuntime, createCodexToolRuntime } from "../tools/runtime.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
@@ -399,11 +400,13 @@ export class AgentSession {
 		this._codexToolRuntime = createCodexToolRuntime({
 			agentDir: config.agentDir ?? getAgentDir(),
 			cwd: config.cwd,
+			getNotebookOptions: () => config.settingsManager.getNotebookSettings(),
 		});
 		this._codexExecutionMode = this._codexToolRuntime.resolveExecutionMode(
 			config.agent.state.model,
 			config.settingsManager.getExecutionMode(),
 		);
+		this._codexToolRuntime.activateExecutionMode(this._codexExecutionMode);
 		this._modelRuntime = config.modelRuntime;
 		this._extensionRunnerRef = config.extensionRunnerRef;
 		this._initialActiveToolNames = config.initialActiveToolNames;
@@ -1099,7 +1102,7 @@ export class AgentSession {
 			shell: this.settingsManager.getShellPath(),
 			mode: this._codexExecutionMode,
 			codeModeToolsPrompt:
-				this._codexExecutionMode === "code"
+				this._codexExecutionMode !== "normal"
 					? this._codexToolRuntime.buildCodeModePromptSection(this.settingsManager.isProjectTrusted())
 					: undefined,
 		};
@@ -1107,7 +1110,7 @@ export class AgentSession {
 	}
 
 	private _refreshCodeModePromptTools(): void {
-		if (this._codexExecutionMode !== "code") return;
+		if (this._codexExecutionMode === "normal") return;
 		this._codexToolRuntime.resetCodeModePromptTools();
 		this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
 		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
@@ -1127,7 +1130,7 @@ export class AgentSession {
 			if (requestedMode !== this._codexExecutionMode) {
 				await this._syncCodexExecutionMode(this.model);
 			}
-			if (this._codexExecutionMode === "code") {
+			if (this._codexExecutionMode !== "normal") {
 				void this._codexToolRuntime.prepareCodeMode().catch(() => undefined);
 			}
 			await this.agent.prompt(messages);
@@ -1649,6 +1652,7 @@ export class AgentSession {
 	private async _syncCodexExecutionMode(model: Model<any> | undefined): Promise<void> {
 		const nextMode = this._codexToolRuntime.resolveExecutionMode(model, this.settingsManager.getExecutionMode());
 		if (nextMode === this._codexExecutionMode) {
+			this._codexToolRuntime.activateExecutionMode(nextMode);
 			this._codexToolRuntime.resetCodeModePromptTools();
 			this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
 			this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
@@ -1656,10 +1660,12 @@ export class AgentSession {
 		}
 		await this._codexToolRuntime.shutdownCodeModeHost();
 		this._codexExecutionMode = nextMode;
+		this._codexToolRuntime.activateExecutionMode(nextMode);
 		this._codexToolRuntime.resetCodeModePromptTools();
 		const ownedNames = new Set([
 			...this._codexToolRuntime.toolNames("normal"),
 			...this._codexToolRuntime.toolNames("code"),
+			...this._codexToolRuntime.toolNames("notebook"),
 		]);
 		const preserved = this.getActiveToolNames().filter((name) => !ownedNames.has(name));
 		this._refreshToolRegistry({
@@ -1940,6 +1946,7 @@ export class AgentSession {
 			}
 
 			let extensionCompaction: CompactionResult | undefined;
+			await this._checkpointNotebookBeforeCompaction();
 
 			if (this._extensionRunner.hasHandlers("session_before_compact")) {
 				const result = (await this._extensionRunner.emit({
@@ -2237,6 +2244,7 @@ export class AgentSession {
 			started = true;
 
 			let extensionCompaction: CompactionResult | undefined;
+			await this._checkpointNotebookBeforeCompaction();
 
 			if (this._extensionRunner.hasHandlers("session_before_compact")) {
 				const extensionResult = (await this._extensionRunner.emit({
@@ -2739,6 +2747,7 @@ export class AgentSession {
 			this.model,
 			this.settingsManager.getExecutionMode(),
 		);
+		this._codexToolRuntime.activateExecutionMode(this._codexExecutionMode);
 		this._codexToolRuntime.resetCodeModePromptTools();
 		const baseToolDefinitions = this._baseToolsOverride
 			? Object.fromEntries(
@@ -2780,6 +2789,7 @@ export class AgentSession {
 		const ownedNames = new Set([
 			...this._codexToolRuntime.toolNames("normal"),
 			...this._codexToolRuntime.toolNames("code"),
+			...this._codexToolRuntime.toolNames("notebook"),
 		]);
 		const requestedActiveToolNames =
 			options.activeToolNames && previousMode !== this._codexExecutionMode
@@ -2835,6 +2845,18 @@ export class AgentSession {
 		// Context overflow is handled by compaction, not retry.
 		if (isContextOverflow(message, this.model?.contextWindow ?? 0)) return false;
 		return isRetryableAssistantError(message);
+	}
+
+	private async _checkpointNotebookBeforeCompaction(): Promise<void> {
+		if (this._codexExecutionMode !== "notebook") return;
+		try {
+			await this._codexToolRuntime.checkpointNotebook();
+		} catch (error) {
+			this._extensionUIContext?.notify(
+				`Notebook checkpoint before compaction failed: ${error instanceof Error ? error.message : String(error)}`,
+				"warning",
+			);
+		}
 	}
 
 	/**
@@ -3257,6 +3279,7 @@ export class AgentSession {
 				// No summary, navigating to non-root
 				this.sessionManager.branch(newLeafId);
 			}
+			if (this._codexExecutionMode === "notebook") appendNotebookTreeEpoch(this.sessionManager);
 
 			// Attach label to target entry when not summarizing (no summary entry to label)
 			if (label && !summaryText) {

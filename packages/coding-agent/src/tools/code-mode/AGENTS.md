@@ -7,3 +7,4 @@
 - `src/code-mode-preflight.ts` is the lightweight public guard API; keep its shared protocol dependency free of the runtime graph.
 - `custom-tool-*` owns TOML discovery and execution. `tool-result.ts` owns model output; `render-tracker.ts` live card state.
 - Notebook remains a separate lazy runtime; do not pull its dependencies into Code Mode startup.
+- `runtime.ts` may use one dynamic import for the Notebook client boundary; keep all other imports top-level inside the lazy Notebook subtree.

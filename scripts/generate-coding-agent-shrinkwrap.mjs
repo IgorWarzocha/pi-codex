@@ -13,6 +13,10 @@ const internalPackagePrefix = "@earendil-works/pi-";
 const allowedInstallScriptPackages = new Map([
 	["@google/genai@1.52.0", "preinstall is a no-op in the published package"],
 	["protobufjs@7.6.5", "postinstall only warns about protobufjs version scheme mismatches"],
+	[
+		"zeromq@6.5.0",
+		"install loads the bundled platform addon and builds from pinned cmake-ts sources only when unavailable or explicitly requested",
+	],
 ]);
 
 const args = new Set(process.argv.slice(2));

@@ -70,6 +70,11 @@ export type DefaultProjectTrust = "ask" | "always" | "never";
 
 export type TransportSetting = Transport;
 
+export interface NotebookSettings {
+	maxHeapMiB?: number; // default: 4096
+	profile?: string;
+}
+
 /**
  * Package source for npm/git packages.
  * - String form: load all resources from the package
@@ -92,7 +97,8 @@ export interface Settings {
 	defaultProvider?: string;
 	defaultModel?: string;
 	defaultThinkingLevel?: ThinkingLevel;
-	executionMode?: "normal" | "code"; // default: "code" for Responses Lite-capable Pi-Codex models
+	executionMode?: "normal" | "code" | "notebook"; // default: "code" for Responses Lite-capable Pi-Codex models
+	notebook?: NotebookSettings;
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -755,14 +761,27 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getExecutionMode(): "normal" | "code" {
+	getExecutionMode(): "normal" | "code" | "notebook" {
 		return this.settings.executionMode ?? "code";
 	}
 
-	setExecutionMode(mode: "normal" | "code"): void {
+	setExecutionMode(mode: "normal" | "code" | "notebook"): void {
 		this.globalSettings.executionMode = mode;
 		this.markModified("executionMode");
 		this.save();
+	}
+
+	getNotebookSettings(): { maxHeapMiB: number; profile?: string | undefined } {
+		const configuredHeap = this.settings.notebook?.maxHeapMiB;
+		const maxHeapMiB =
+			typeof configuredHeap === "number" && Number.isInteger(configuredHeap)
+				? Math.min(65_536, Math.max(256, configuredHeap))
+				: 4_096;
+		const profile = this.settings.notebook?.profile;
+		return {
+			maxHeapMiB,
+			...(typeof profile === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profile) ? { profile } : {}),
+		};
 	}
 
 	getTransport(): TransportSetting {
