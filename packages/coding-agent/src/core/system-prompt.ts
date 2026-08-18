@@ -20,6 +20,8 @@ export interface BuildSystemPromptOptions {
 	cwd: string;
 	/** Current execution mode. */
 	mode?: CodexPromptMode;
+	/** Native Code Mode tool exposition inserted before runtime context. */
+	codeModeToolsPrompt?: string;
 	/** Configured shell path. */
 	shell?: string;
 	/** Pre-loaded context files. */
@@ -127,6 +129,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	prompt = appendProjectContext(prompt, options.contextFiles ?? []);
 	const skills = buildSkillsSection(options.skills ?? []);
 	if (skills) prompt += `\n\n${skills}`;
+	if (options.codeModeToolsPrompt?.trim()) prompt += `\n\n${options.codeModeToolsPrompt.trim()}`;
 	const shell = resolveShell(options.shell);
 	const shellName = shell.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
 	const zshGuidance = shellName === "zsh" || shellName === "zsh.exe" ? "; status is read-only, capture $? as rc" : "";

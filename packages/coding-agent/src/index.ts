@@ -1,6 +1,13 @@
 // Core session management
 
 export { type Args, parseArgs } from "./cli/args.ts";
+export {
+	type CodeModeToolPreflight,
+	type CodeModeToolPreflightCall,
+	type CodeModeToolPreflightRegistration,
+	type CodeModeToolPreflightResult,
+	registerCodeModeToolPreflight,
+} from "./code-mode-preflight.ts";
 
 // Config paths
 export {

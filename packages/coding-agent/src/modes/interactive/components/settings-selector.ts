@@ -66,6 +66,7 @@ export interface SettingsConfig {
 	steeringMode: "all" | "one-at-a-time";
 	followUpMode: "all" | "one-at-a-time";
 	transport: Transport;
+	executionMode: "normal" | "code";
 	httpIdleTimeoutMs: number;
 	thinkingLevel: ThinkingLevel;
 	availableThinkingLevels: ThinkingLevel[];
@@ -103,6 +104,7 @@ export interface SettingsCallbacks {
 	onSteeringModeChange: (mode: "all" | "one-at-a-time") => void;
 	onFollowUpModeChange: (mode: "all" | "one-at-a-time") => void;
 	onTransportChange: (transport: Transport) => void;
+	onExecutionModeChange: (mode: "normal" | "code") => void;
 	onHttpIdleTimeoutMsChange: (timeoutMs: number) => void;
 	onThinkingLevelChange: (level: ThinkingLevel) => void;
 	onThemeChange: (theme: string) => void;
@@ -518,6 +520,13 @@ export class SettingsSelectorComponent extends Container {
 				values: ["one-at-a-time", "all"],
 			},
 			{
+				id: "execution-mode",
+				label: "Execution mode",
+				description: "Code composes native tools through exec; Normal exposes each native tool directly",
+				currentValue: config.executionMode,
+				values: ["code", "normal"],
+			},
+			{
 				id: "transport",
 				label: "Transport",
 				description: "Preferred transport for providers that support multiple transports",
@@ -806,6 +815,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "transport":
 						callbacks.onTransportChange(newValue as Transport);
+						break;
+					case "execution-mode":
+						callbacks.onExecutionModeChange(newValue as "normal" | "code");
 						break;
 					case "http-idle-timeout": {
 						const choice = HTTP_IDLE_TIMEOUT_CHOICES.find((item) => item.label === newValue);

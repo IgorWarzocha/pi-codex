@@ -189,6 +189,8 @@ for platform in "${PLATFORMS[@]}"; do
     cp ../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm "$OUTPUT_DIR/$platform/"
     mkdir -p "$OUTPUT_DIR/$platform/shell"
     cp src/shell/tree-sitter-bash.wasm "$OUTPUT_DIR/$platform/shell/"
+    mkdir -p "$OUTPUT_DIR/$platform/tools/code-mode"
+    cp src/tools/code-mode/CUSTOM-TOOLS.md "$OUTPUT_DIR/$platform/tools/code-mode/"
     for tool_spec in \
         "apply-patch:apply_patch" \
         "exec:exec_bridge" \

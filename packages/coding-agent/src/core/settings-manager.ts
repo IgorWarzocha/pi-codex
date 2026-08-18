@@ -92,6 +92,7 @@ export interface Settings {
 	defaultProvider?: string;
 	defaultModel?: string;
 	defaultThinkingLevel?: ThinkingLevel;
+	executionMode?: "normal" | "code"; // default: "code" for Responses Lite-capable Pi-Codex models
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -751,6 +752,16 @@ export class SettingsManager {
 	setDefaultThinkingLevel(level: ThinkingLevel): void {
 		this.globalSettings.defaultThinkingLevel = level;
 		this.markModified("defaultThinkingLevel");
+		this.save();
+	}
+
+	getExecutionMode(): "normal" | "code" {
+		return this.settings.executionMode ?? "code";
+	}
+
+	setExecutionMode(mode: "normal" | "code"): void {
+		this.globalSettings.executionMode = mode;
+		this.markModified("executionMode");
 		this.save();
 	}
 

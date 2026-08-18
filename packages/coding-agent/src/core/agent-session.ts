@@ -46,8 +46,9 @@ import {
 	resetApiProviders,
 	streamSimple,
 } from "@earendil-works/pi-ai/compat";
+import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
-import { createCodexToolRuntime, DEFAULT_CODEX_TOOL_NAMES } from "../tools/runtime.ts";
+import { type CodexExecutionMode, type CodexToolRuntime, createCodexToolRuntime } from "../tools/runtime.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
@@ -202,6 +203,7 @@ export interface AgentSessionConfig {
 	sessionManager: SessionManager;
 	settingsManager: SettingsManager;
 	cwd: string;
+	agentDir?: string;
 	/** Models to cycle through with Ctrl+P (from --models flag) */
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	/** Resource loader for extensions, skills, prompts, themes, context files, and system prompt */
@@ -372,7 +374,8 @@ export class AgentSession {
 	private _extensionErrorUnsubscriber?: () => void;
 
 	private _modelRuntime: ModelRuntime;
-	private readonly _codexToolRuntime = createCodexToolRuntime();
+	private readonly _codexToolRuntime: CodexToolRuntime;
+	private _codexExecutionMode: CodexExecutionMode;
 
 	// Tool registry for extension getTools/setTools
 	private _toolRegistry: Map<string, AgentTool> = new Map();
@@ -393,6 +396,14 @@ export class AgentSession {
 		this._resourceLoader = config.resourceLoader;
 		this._customTools = config.customTools ?? [];
 		this._cwd = config.cwd;
+		this._codexToolRuntime = createCodexToolRuntime({
+			agentDir: config.agentDir ?? getAgentDir(),
+			cwd: config.cwd,
+		});
+		this._codexExecutionMode = this._codexToolRuntime.resolveExecutionMode(
+			config.agent.state.model,
+			config.settingsManager.getExecutionMode(),
+		);
 		this._modelRuntime = config.modelRuntime;
 		this._extensionRunnerRef = config.extensionRunnerRef;
 		this._initialActiveToolNames = config.initialActiveToolNames;
@@ -898,6 +909,15 @@ export class AgentSession {
 		return this.agent.state.thinkingLevel;
 	}
 
+	get executionMode(): CodexExecutionMode {
+		return this._codexExecutionMode;
+	}
+
+	async setExecutionMode(mode: CodexExecutionMode): Promise<void> {
+		this.settingsManager.setExecutionMode(mode);
+		await this._syncCodexExecutionMode(this.model);
+	}
+
 	/** Whether the session is currently processing an agent run or post-run continuation. */
 	get isStreaming(): boolean {
 		return this._isAgentRunActive;
@@ -1077,8 +1097,20 @@ export class AgentSession {
 			toolSnippets,
 			promptGuidelines,
 			shell: this.settingsManager.getShellPath(),
+			mode: this._codexExecutionMode,
+			codeModeToolsPrompt:
+				this._codexExecutionMode === "code"
+					? this._codexToolRuntime.buildCodeModePromptSection(this.settingsManager.isProjectTrusted())
+					: undefined,
 		};
 		return buildSystemPrompt(this._baseSystemPromptOptions);
+	}
+
+	private _refreshCodeModePromptTools(): void {
+		if (this._codexExecutionMode !== "code") return;
+		this._codexToolRuntime.resetCodeModePromptTools();
+		this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
+		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
 	}
 
 	// =========================================================================
@@ -1088,6 +1120,16 @@ export class AgentSession {
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		this._isAgentRunActive = true;
 		try {
+			const requestedMode = this._codexToolRuntime.resolveExecutionMode(
+				this.model,
+				this.settingsManager.getExecutionMode(),
+			);
+			if (requestedMode !== this._codexExecutionMode) {
+				await this._syncCodexExecutionMode(this.model);
+			}
+			if (this._codexExecutionMode === "code") {
+				void this._codexToolRuntime.prepareCodeMode().catch(() => undefined);
+			}
 			await this.agent.prompt(messages);
 			while (await this._handlePostAgentRun()) {
 				await this.agent.continue();
@@ -1595,11 +1637,33 @@ export class AgentSession {
 		source: "set" | "cycle" | "restore",
 	): Promise<void> {
 		if (modelsAreEqual(previousModel, nextModel)) return;
+		await this._syncCodexExecutionMode(nextModel);
 		await this._extensionRunner.emit({
 			type: "model_select",
 			model: nextModel,
 			previousModel,
 			source,
+		});
+	}
+
+	private async _syncCodexExecutionMode(model: Model<any> | undefined): Promise<void> {
+		const nextMode = this._codexToolRuntime.resolveExecutionMode(model, this.settingsManager.getExecutionMode());
+		if (nextMode === this._codexExecutionMode) {
+			this._codexToolRuntime.resetCodeModePromptTools();
+			this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
+			this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
+			return;
+		}
+		await this._codexToolRuntime.shutdownCodeModeHost();
+		this._codexExecutionMode = nextMode;
+		this._codexToolRuntime.resetCodeModePromptTools();
+		const ownedNames = new Set([
+			...this._codexToolRuntime.toolNames("normal"),
+			...this._codexToolRuntime.toolNames("code"),
+		]);
+		const preserved = this.getActiveToolNames().filter((name) => !ownedNames.has(name));
+		this._refreshToolRegistry({
+			activeToolNames: [...this._codexToolRuntime.toolNames(nextMode), ...preserved],
 		});
 	}
 
@@ -1963,6 +2027,7 @@ export class AgentSession {
 				usage,
 				details,
 			};
+			this._refreshCodeModePromptTools();
 			// compaction_end listeners may submit queued prompts, so expose idle state before notifying them.
 			this._compactionAbortController = undefined;
 			this._emit({
@@ -2285,6 +2350,7 @@ export class AgentSession {
 				usage,
 				details,
 			};
+			this._refreshCodeModePromptTools();
 			this._emit({ type: "compaction_end", reason, result, aborted: false, willRetry });
 
 			if (willRetry) {
@@ -2668,6 +2734,12 @@ export class AgentSession {
 		flagValues?: Map<string, boolean | string>;
 		includeAllExtensionTools?: boolean;
 	}): void {
+		const previousMode = this._codexExecutionMode;
+		this._codexExecutionMode = this._codexToolRuntime.resolveExecutionMode(
+			this.model,
+			this.settingsManager.getExecutionMode(),
+		);
+		this._codexToolRuntime.resetCodeModePromptTools();
 		const baseToolDefinitions = this._baseToolsOverride
 			? Object.fromEntries(
 					Object.entries(this._baseToolsOverride).map(([name, tool]) => [
@@ -2682,6 +2754,7 @@ export class AgentSession {
 		);
 
 		const extensionsResult = this._resourceLoader.getExtensions();
+		this._codexToolRuntime.bindEvents(extensionsResult.runtime.events);
 		if (options.flagValues) {
 			for (const [name, value] of options.flagValues) {
 				extensionsResult.runtime.flagValues.set(name, value);
@@ -2703,8 +2776,19 @@ export class AgentSession {
 
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
-			: [...DEFAULT_CODEX_TOOL_NAMES];
-		const baseActiveToolNames = options.activeToolNames ?? defaultActiveToolNames;
+			: [...this._codexToolRuntime.toolNames(this._codexExecutionMode)];
+		const ownedNames = new Set([
+			...this._codexToolRuntime.toolNames("normal"),
+			...this._codexToolRuntime.toolNames("code"),
+		]);
+		const requestedActiveToolNames =
+			options.activeToolNames && previousMode !== this._codexExecutionMode
+				? [
+						...this._codexToolRuntime.toolNames(this._codexExecutionMode),
+						...options.activeToolNames.filter((name) => !ownedNames.has(name)),
+					]
+				: options.activeToolNames;
+		const baseActiveToolNames = requestedActiveToolNames ?? defaultActiveToolNames;
 		this._refreshToolRegistry({
 			activeToolNames: baseActiveToolNames,
 			includeAllExtensionTools: options.includeAllExtensionTools,
@@ -2715,6 +2799,7 @@ export class AgentSession {
 		const oldRunner = this._extensionRunner;
 		const previousFlagValues = oldRunner.getFlagValues();
 		await emitSessionShutdownEvent(oldRunner, { type: "session_shutdown", reason: "reload" });
+		await this._codexToolRuntime.shutdownCodeModeHost();
 		oldRunner.invalidate();
 		await this.settingsManager.reload();
 		this.syncQueueModesFromSettings();
@@ -3020,6 +3105,7 @@ export class AgentSession {
 		if (targetId === oldLeafId) {
 			return { cancelled: false };
 		}
+		await this._codexToolRuntime.shutdownCodeModeHost();
 
 		// Model required for summarization
 		if (options.summarize && !this.model) {

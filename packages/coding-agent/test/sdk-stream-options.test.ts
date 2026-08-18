@@ -37,7 +37,7 @@ describe("createAgentSession stream options", () => {
 
 	function createModel(api: Api): Model<Api> {
 		return {
-			id: "capture-model",
+			id: api === "openai-codex-responses" ? "gpt-daybreak-blue-latest" : "capture-model",
 			name: "Capture Model",
 			api,
 			provider: "capture-provider",
@@ -133,7 +133,7 @@ describe("createAgentSession stream options", () => {
 		const options = await captureStreamOptions("openai-codex-responses", {});
 
 		expect(options as SimpleStreamOptions & Record<string, unknown>).toMatchObject({
-			executionMode: "normal",
+			executionMode: "code",
 			forceCachedWebSockets: true,
 			textVerbosity: "low",
 		});

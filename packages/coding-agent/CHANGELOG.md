@@ -5,10 +5,12 @@
 ### Breaking Changes
 
 - Replaced the stock `read`, `bash`, `edit`, `write`, `grep`, `find`, and `ls` runtime with the native Pi-Codex `exec_command`, `write_stdin`, `apply_patch`, `view_image`, `web_run`, and `imagegen` tool surface. The obsolete `defaultTools` setting is no longer used.
+- Responses Lite-capable Pi-Codex models now default to Code Mode, exposing `exec` and `wait` while keeping native tools available only inside the restricted JavaScript runtime. Set `executionMode` to `normal` to retain the flat tool surface.
 
 ### Added
 
 - Added transcript usage notices for compaction and branch summaries when cache miss notices are enabled.
+- Added the pinned Codex V8 host, nested-tool delegation and traces, extension preflight guards, and trusted global/project TOML custom tools.
 
 ### Changed
 

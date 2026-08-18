@@ -9,7 +9,7 @@ import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { type CreateAgentSessionOptions, createAgentSession, type InlineExtension } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { DEFAULT_CODEX_TOOL_NAMES } from "../src/tools/runtime.ts";
+import { ALL_CODEX_TOOL_NAMES, DEFAULT_CODEX_TOOL_NAMES } from "../src/tools/runtime.ts";
 
 type ToolOptions = Pick<CreateAgentSessionOptions, "tools" | "excludeTools" | "noTools" | "customTools">;
 
@@ -61,7 +61,7 @@ describe("Pi-Codex default tools", () => {
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual([...DEFAULT_CODEX_TOOL_NAMES].sort());
+		).toEqual([...ALL_CODEX_TOOL_NAMES].sort());
 		expect(session.getActiveToolNames()).toEqual(DEFAULT_CODEX_TOOL_NAMES);
 		expect(session.systemPrompt).not.toContain("Available tools:");
 		session.dispose();
