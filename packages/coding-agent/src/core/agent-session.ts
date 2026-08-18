@@ -401,6 +401,14 @@ export class AgentSession {
 			agentDir: config.agentDir ?? getAgentDir(),
 			cwd: config.cwd,
 			getNotebookOptions: () => config.settingsManager.getNotebookSettings(),
+			getPiCodexOptions: () => {
+				const settings = config.settingsManager.getPiCodexSettings();
+				return {
+					customRustBinariesDir: settings.customRustBinariesDir,
+					describeImagesForTextModels: settings.viewImageFallback,
+					webSearchModel: settings.openai?.webSearchModel,
+				};
+			},
 		});
 		this._codexExecutionMode = this._codexToolRuntime.resolveExecutionMode(
 			config.agent.state.model,

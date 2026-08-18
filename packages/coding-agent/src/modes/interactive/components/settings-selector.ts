@@ -18,6 +18,7 @@ import type {
 	DefaultProjectTrust,
 	FullscreenExitOutput,
 	MermaidRenderingMode,
+	PiCodexSettings,
 	TuiMode,
 	WarningSettings,
 } from "../../../core/settings-manager.ts";
@@ -67,6 +68,7 @@ export interface SettingsConfig {
 	followUpMode: "all" | "one-at-a-time";
 	transport: Transport;
 	executionMode: "normal" | "code" | "notebook";
+	piCodex: PiCodexSettings;
 	httpIdleTimeoutMs: number;
 	thinkingLevel: ThinkingLevel;
 	availableThinkingLevels: ThinkingLevel[];
@@ -105,6 +107,7 @@ export interface SettingsCallbacks {
 	onFollowUpModeChange: (mode: "all" | "one-at-a-time") => void;
 	onTransportChange: (transport: Transport) => void;
 	onExecutionModeChange: (mode: "normal" | "code" | "notebook") => void;
+	onPiCodexChange: (settings: PiCodexSettings) => void;
 	onHttpIdleTimeoutMsChange: (timeoutMs: number) => void;
 	onThinkingLevelChange: (level: ThinkingLevel) => void;
 	onThemeChange: (theme: string) => void;
@@ -495,6 +498,7 @@ export class SettingsSelectorComponent extends Container {
 		const supportsImages = getCapabilities().images;
 		const followUpKey = keyDisplayText("app.message.followUp");
 		let currentWarnings = { ...config.warnings };
+		let currentPiCodex = structuredClone(config.piCodex ?? {});
 
 		const items: SettingItem[] = [
 			{
@@ -526,6 +530,118 @@ export class SettingsSelectorComponent extends Container {
 					"Notebook keeps a persistent Deno/TypeScript kernel; Code composes tools in V8; Normal exposes tools directly",
 				currentValue: config.executionMode,
 				values: ["notebook", "code", "normal"],
+			},
+			{
+				id: "codex-fast",
+				label: "Codex Fast Mode",
+				description: "Use OpenAI priority service tier",
+				currentValue: (currentPiCodex.openai?.fast ?? false) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-verbosity",
+				label: "Codex verbosity",
+				description: "Response text verbosity sent to OpenAI",
+				currentValue: currentPiCodex.openai?.verbosity ?? "low",
+				values: ["low", "medium", "high"],
+			},
+			{
+				id: "codex-compaction",
+				label: "Codex Compaction V2",
+				description: "Use encrypted native Responses compaction and replay",
+				currentValue: (currentPiCodex.compaction?.responsesCompaction ?? true) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-cache-diagnostics",
+				label: "Codex cache diagnostics",
+				description: "Show transport/cache status; logging stores safe metadata only",
+				currentValue: currentPiCodex.openai?.cacheDiagnostics ?? "off",
+				values: ["off", "status", "status-and-log"],
+			},
+			{
+				id: "codex-cache-keepalive",
+				label: "Codex cache keepalive",
+				description: "Refresh an idle cached WebSocket context every 25 minutes",
+				currentValue: (currentPiCodex.openai?.cacheKeepalive ?? false) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-cached-websockets",
+				label: "Codex cached WebSockets",
+				description: "Keep session transport and continuation state warm",
+				currentValue: (currentPiCodex.openai?.forceCachedWebSockets ?? true) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-compaction-retention",
+				label: "Compaction user retention",
+				description: "Approximate recent user-message window retained around encrypted checkpoints",
+				currentValue: String(currentPiCodex.compaction?.v2UserMessageRetention ?? 64),
+				values: ["16", "32", "64"],
+			},
+			{
+				id: "codex-helper-model",
+				label: "Codex helper model",
+				description: "Model used by web search and text image descriptions",
+				currentValue: currentPiCodex.openai?.webSearchModel ?? "gpt-5.6-luna",
+				values: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4-mini", "gpt-5.3-codex-spark"],
+			},
+			{
+				id: "codex-image-description",
+				label: "Describe images for text models",
+				description: "Use the Codex helper model to return plain-text image descriptions",
+				currentValue: (currentPiCodex.viewImageFallback ?? false) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-background-shell",
+				label: "Background shell widget",
+				description: "Show resumable background command status above the editor",
+				currentValue: (currentPiCodex.ui?.backgroundShellWidget ?? true) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-voice",
+				label: "Realtime voice",
+				description: "Voice used by the fixed realtime Codex transport",
+				currentValue: currentPiCodex.voice?.v3Voice ?? "cove",
+				values: ["cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "arbor", "sol"],
+			},
+			{
+				id: "codex-voice-resume",
+				label: "Resume dropped voice calls",
+				description: "Reconnect only calls that were previously established",
+				currentValue: (currentPiCodex.voice?.autoResumeRealtime ?? false) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-dictation-mode",
+				label: "Dictation shortcut",
+				description: "Push records while held; toggle starts and stops on each press",
+				currentValue: currentPiCodex.voice?.dictationShortcutMode ?? "push",
+				values: ["push", "toggle"],
+			},
+			{
+				id: "codex-voice-acknowledgements",
+				label: "Voice delegation acknowledgements",
+				description: "Let realtime voice acknowledge delegated work while Pi runs",
+				currentValue: (currentPiCodex.voice?.delegationAcknowledgements ?? true) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-voice-reasoning",
+				label: "Speak reasoning summaries",
+				description: "Use a completed reasoning summary when tool work produced no speakable text",
+				currentValue: (currentPiCodex.voice?.forwardReasoningSummaries ?? true) ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "codex-voice-context-reasoning",
+				label: "Voice context reasoning",
+				description: "Reasoning level for the isolated voice continuity summary",
+				currentValue: currentPiCodex.voice?.contextReasoning ?? "high",
+				values: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
 			},
 			{
 				id: "transport",
@@ -819,6 +935,121 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "execution-mode":
 						callbacks.onExecutionModeChange(newValue as "normal" | "code" | "notebook");
+						break;
+					case "codex-fast":
+						currentPiCodex = {
+							...currentPiCodex,
+							openai: { ...currentPiCodex.openai, fast: newValue === "true" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-verbosity":
+						currentPiCodex = {
+							...currentPiCodex,
+							openai: { ...currentPiCodex.openai, verbosity: newValue as "low" | "medium" | "high" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-compaction":
+						currentPiCodex = {
+							...currentPiCodex,
+							compaction: { ...currentPiCodex.compaction, responsesCompaction: newValue === "true" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-cache-diagnostics":
+						currentPiCodex = {
+							...currentPiCodex,
+							openai: {
+								...currentPiCodex.openai,
+								cacheDiagnostics: newValue as "off" | "status" | "status-and-log",
+							},
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-cache-keepalive":
+						currentPiCodex = {
+							...currentPiCodex,
+							openai: { ...currentPiCodex.openai, cacheKeepalive: newValue === "true" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-cached-websockets":
+						currentPiCodex = {
+							...currentPiCodex,
+							openai: { ...currentPiCodex.openai, forceCachedWebSockets: newValue === "true" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-compaction-retention":
+						currentPiCodex = {
+							...currentPiCodex,
+							compaction: {
+								...currentPiCodex.compaction,
+								v2UserMessageRetention: Number(newValue) as 16 | 32 | 64,
+							},
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-helper-model":
+						currentPiCodex = {
+							...currentPiCodex,
+							openai: { ...currentPiCodex.openai, webSearchModel: newValue },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-image-description":
+						currentPiCodex = { ...currentPiCodex, viewImageFallback: newValue === "true" };
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-background-shell":
+						currentPiCodex = {
+							...currentPiCodex,
+							ui: { ...currentPiCodex.ui, backgroundShellWidget: newValue === "true" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-voice":
+						currentPiCodex = { ...currentPiCodex, voice: { ...currentPiCodex.voice, v3Voice: newValue } };
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-voice-resume":
+						currentPiCodex = {
+							...currentPiCodex,
+							voice: { ...currentPiCodex.voice, autoResumeRealtime: newValue === "true" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-dictation-mode":
+						currentPiCodex = {
+							...currentPiCodex,
+							voice: { ...currentPiCodex.voice, dictationShortcutMode: newValue as "push" | "toggle" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-voice-acknowledgements":
+						currentPiCodex = {
+							...currentPiCodex,
+							voice: { ...currentPiCodex.voice, delegationAcknowledgements: newValue === "true" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-voice-reasoning":
+						currentPiCodex = {
+							...currentPiCodex,
+							voice: { ...currentPiCodex.voice, forwardReasoningSummaries: newValue === "true" },
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
+						break;
+					case "codex-voice-context-reasoning":
+						currentPiCodex = {
+							...currentPiCodex,
+							voice: {
+								...currentPiCodex.voice,
+								contextReasoning: newValue as "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+							},
+						};
+						callbacks.onPiCodexChange(currentPiCodex);
 						break;
 					case "http-idle-timeout": {
 						const choice = HTTP_IDLE_TIMEOUT_CHOICES.find((item) => item.label === newValue);

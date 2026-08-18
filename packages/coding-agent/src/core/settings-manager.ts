@@ -75,6 +75,43 @@ export interface NotebookSettings {
 	profile?: string;
 }
 
+export interface PiCodexSettings {
+	openai?: {
+		fast?: boolean;
+		verbosity?: "low" | "medium" | "high";
+		cacheKeepalive?: boolean;
+		forceCachedWebSockets?: boolean;
+		cacheDiagnostics?: "off" | "status" | "status-and-log";
+		webSearchModel?: string;
+	};
+	compaction?: {
+		responsesCompaction?: boolean;
+		v2UserMessageRetention?: 16 | 32 | 64;
+	};
+	voice?: {
+		v3Voice?: string;
+		autoResumeRealtime?: boolean;
+		audioSetupCompleted?: boolean;
+		delegationAcknowledgements?: boolean;
+		forwardReasoningSummaries?: boolean;
+		dictationShortcut?: string;
+		realtimeShortcut?: string;
+		muteShortcut?: string;
+		serverShortcut?: string;
+		dictationShortcutMode?: "push" | "toggle";
+		contextModel?: { provider: string; modelId: string };
+		contextReasoning?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		inputDevice?: string;
+		outputDevice?: string;
+	};
+	ui?: {
+		statusLine?: boolean;
+		backgroundShellWidget?: boolean;
+	};
+	customRustBinariesDir?: string;
+	viewImageFallback?: boolean;
+}
+
 /**
  * Package source for npm/git packages.
  * - String form: load all resources from the package
@@ -99,6 +136,7 @@ export interface Settings {
 	defaultThinkingLevel?: ThinkingLevel;
 	executionMode?: "normal" | "code" | "notebook"; // default: "code" for Responses Lite-capable Pi-Codex models
 	notebook?: NotebookSettings;
+	piCodex?: PiCodexSettings;
 	transport?: TransportSetting; // default: "auto"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -782,6 +820,16 @@ export class SettingsManager {
 			maxHeapMiB,
 			...(typeof profile === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profile) ? { profile } : {}),
 		};
+	}
+
+	getPiCodexSettings(): PiCodexSettings {
+		return structuredClone(this.settings.piCodex ?? {});
+	}
+
+	setPiCodexSettings(settings: PiCodexSettings): void {
+		this.globalSettings.piCodex = structuredClone(settings);
+		this.markModified("piCodex");
+		this.save();
 	}
 
 	getTransport(): TransportSetting {

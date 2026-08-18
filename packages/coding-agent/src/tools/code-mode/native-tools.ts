@@ -17,6 +17,11 @@ export function createNativeCodeModeTools(
 	tracker: ExecCommandTracker,
 	sessions: ExecSessionManager,
 	_ctx?: ExtensionContext,
+	runtimeOptions: {
+		customRustBinariesDir?: string | undefined;
+		describeImagesForTextModels?: boolean | undefined;
+		webSearchModel?: string | undefined;
+	} = {},
 ): ProgrammaticCodeModeToolDefinition[] {
 	const options = {
 		promptSnippet: false,
@@ -26,6 +31,7 @@ export function createNativeCodeModeTools(
 	return [
 		toNestedTool(
 			createApplyPatchTool({
+				customRustBinariesDir: runtimeOptions.customRustBinariesDir,
 				promptSnippet: false,
 				showDiffWhenCollapsed: true,
 			}),
@@ -102,7 +108,13 @@ export function createNativeCodeModeTools(
 			{ yieldTimeMs: LONG_RUNNING_TOOL_OUTER_YIELD_MS },
 		),
 		toNestedTool(
-			createViewImageTool({ promptSnippet: false, customRendering: true }),
+			createViewImageTool({
+				customRustBinariesDir: runtimeOptions.customRustBinariesDir,
+				describeForTextModels: runtimeOptions.describeImagesForTextModels,
+				descriptionModel: runtimeOptions.webSearchModel,
+				promptSnippet: false,
+				customRendering: true,
+			}),
 			'const result = await tools.view_image({ path: string, detail?: "original" }); image(result)',
 			{},
 			{ resultValue: codeModeImageResult },
@@ -110,7 +122,8 @@ export function createNativeCodeModeTools(
 		toNestedTool(
 			createWebSearchTool("web__run", {
 				allowCodexProviderFallback: true,
-				model: "gpt-5.6-luna",
+				model: runtimeOptions.webSearchModel ?? "gpt-5.6-luna",
+				customRustBinariesDir: runtimeOptions.customRustBinariesDir,
 				promptSnippet: false,
 				customRendering: true,
 			}),
@@ -121,6 +134,7 @@ export function createNativeCodeModeTools(
 		toNestedTool(
 			{
 				...createImageGenerationTool({
+					customRustBinariesDir: runtimeOptions.customRustBinariesDir,
 					allowCodexProviderFallback: true,
 					promptSnippet: false,
 					customRendering: true,

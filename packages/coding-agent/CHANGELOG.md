@@ -12,6 +12,7 @@
 - Added transcript usage notices for compaction and branch summaries when cache miss notices are enabled.
 - Added the pinned Codex V8 host, nested-tool delegation and traces, extension preflight guards, and trusted global/project TOML custom tools.
 - Added Notebook Mode with a persistent Deno/TypeScript kernel, durable project and session checkpoints, named profiles, lifecycle controls, journals, diagnostics, and native tool delegation.
+- Added native realtime voice, dictation, GipPity LAN control, Responses Compaction V2, Codex usage and reset credits, cache diagnostics and keepalive, background shell controls, and their Pi-Codex settings.
 
 ### Changed
 

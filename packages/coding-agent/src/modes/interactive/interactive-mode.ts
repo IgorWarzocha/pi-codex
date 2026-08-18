@@ -4484,6 +4484,7 @@ export class InteractiveMode {
 					steeringMode: this.session.steeringMode,
 					followUpMode: this.session.followUpMode,
 					executionMode: this.session.executionMode,
+					piCodex: this.settingsManager.getPiCodexSettings(),
 					transport: this.settingsManager.getTransport(),
 					httpIdleTimeoutMs: this.settingsManager.getHttpIdleTimeoutMs(),
 					thinkingLevel: this.session.thinkingLevel,
@@ -4550,6 +4551,9 @@ export class InteractiveMode {
 					},
 					onExecutionModeChange: (mode) => {
 						void this.session.setExecutionMode(mode);
+					},
+					onPiCodexChange: (settings) => {
+						this.settingsManager.setPiCodexSettings(settings);
 					},
 					onTransportChange: (transport) => {
 						this.settingsManager.setTransport(transport);

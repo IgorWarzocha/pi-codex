@@ -24,6 +24,7 @@ interface ViewImageParams {
 
 interface CreateViewImageToolOptions {
 	customRustBinariesDir?: string | undefined;
+	descriptionModel?: string | undefined;
 	describeForTextModels?: boolean | undefined;
 	customRendering?: boolean | undefined;
 	promptSnippet?: boolean | undefined;
@@ -172,9 +173,10 @@ export async function describeImageContentForTextModel(
 	image: ViewImageContent,
 	ctx: ExtensionContext,
 	signal: AbortSignal | undefined,
+	configuredModel?: string | undefined,
 ): Promise<string> {
 	const provider = await resolveCodexToolProvider(ctx);
-	const model = resolveImageDescriptionModel(ctx);
+	const model = configuredModel ?? resolveImageDescriptionModel(ctx);
 	const headers = codexToolProviderHeaders(provider);
 	headers.set("accept", "text/event-stream");
 	headers.set("OpenAI-Beta", "responses=experimental");
@@ -240,7 +242,7 @@ export function createViewImageTool(options: CreateViewImageToolOptions = {}): T
 					signal,
 					options.customRustBinariesDir,
 				);
-				const description = await describeImageContentForTextModel(image, ctx, signal);
+				const description = await describeImageContentForTextModel(image, ctx, signal, options.descriptionModel);
 				return {
 					content: [{ type: "text", text: description }],
 					details: { viewImageDescription: { image, path: typedParams.path, description } },

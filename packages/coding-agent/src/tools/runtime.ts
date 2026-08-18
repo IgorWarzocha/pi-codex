@@ -11,6 +11,7 @@ import { createExecCommandTool } from "./exec/command-tool.ts";
 import { createExecSessionManager } from "./exec/session-manager.ts";
 import { createWriteStdinTool } from "./exec/write-stdin-tool.ts";
 import { createImageGenerationTool } from "./imagegen/tool.ts";
+import { getBundledToolBinaryPath } from "./native/binary.ts";
 import { createViewImageTool } from "./view-image/tool.ts";
 import { createWebSearchTool } from "./web-run/tool.ts";
 
@@ -29,6 +30,7 @@ export const DEFAULT_CODEX_TOOL_NAMES = NORMAL_CODEX_TOOL_NAMES;
 export const ALL_CODEX_TOOL_NAMES = [...NORMAL_CODEX_TOOL_NAMES, ...NOTEBOOK_MODE_TOOL_NAMES] as const;
 
 export type CodexExecutionMode = "normal" | "code" | "notebook";
+export const PI_CODEX_EXEC_SESSIONS_CHANNEL = "pi-codex:exec-sessions";
 
 export interface CodexToolRuntimeOptions {
 	agentDir: string;
@@ -36,6 +38,11 @@ export interface CodexToolRuntimeOptions {
 	getNotebookOptions(): {
 		maxHeapMiB: number;
 		profile?: string | undefined;
+	};
+	getPiCodexOptions(): {
+		customRustBinariesDir?: string | undefined;
+		describeImagesForTextModels?: boolean | undefined;
+		webSearchModel?: string | undefined;
 	};
 }
 
@@ -71,26 +78,46 @@ export function resolveCodexExecutionMode(
 
 export function createCodexToolRuntime(options: CodexToolRuntimeOptions): CodexToolRuntime {
 	const tracker = createExecCommandTracker();
-	const sessions = createExecSessionManager();
+	const sessions = createExecSessionManager({
+		bridgeBinaryPath: () =>
+			getBundledToolBinaryPath("exec_bridge", {}, options.getPiCodexOptions().customRustBinariesDir),
+	});
 	const removeSessionExitListener = sessions.onSessionExit((sessionId) => tracker.recordSessionFinished(sessionId));
 	const codeMode = new CodeModeRuntime({
 		agentDir: options.agentDir,
 		cwd: options.cwd,
-		getTools: (ctx) => createNativeCodeModeTools(tracker, sessions, ctx),
+		getTools: (ctx) => createNativeCodeModeTools(tracker, sessions, ctx, options.getPiCodexOptions()),
 		getNotebookOptions: () => ({ agentDir: options.agentDir, ...options.getNotebookOptions() }),
 	});
 	const normalDefinitions: Record<string, ToolDefinition> = {
 		exec_command: eraseToolDefinition(createExecCommandTool(tracker, sessions, { showOutputWhenCollapsed: true })),
 		write_stdin: eraseToolDefinition(createWriteStdinTool(sessions, { showOutputWhenCollapsed: true })),
-		apply_patch: eraseToolDefinition(createApplyPatchTool({ showDiffWhenCollapsed: true })),
-		view_image: eraseToolDefinition(createViewImageTool()),
+		apply_patch: eraseToolDefinition(
+			createApplyPatchTool({
+				customRustBinariesDir: options.getPiCodexOptions().customRustBinariesDir,
+				showDiffWhenCollapsed: true,
+			}),
+		),
+		view_image: eraseToolDefinition(
+			createViewImageTool({
+				customRustBinariesDir: options.getPiCodexOptions().customRustBinariesDir,
+				describeForTextModels: options.getPiCodexOptions().describeImagesForTextModels,
+				descriptionModel: options.getPiCodexOptions().webSearchModel,
+			}),
+		),
 		web_run: eraseToolDefinition(
 			createWebSearchTool("web_run", {
 				allowCodexProviderFallback: true,
-				model: "gpt-5.6-luna",
+				model: () => options.getPiCodexOptions().webSearchModel ?? "gpt-5.6-luna",
+				customRustBinariesDir: options.getPiCodexOptions().customRustBinariesDir,
 			}),
 		),
-		imagegen: eraseToolDefinition(createImageGenerationTool({ allowCodexProviderFallback: true })),
+		imagegen: eraseToolDefinition(
+			createImageGenerationTool({
+				allowCodexProviderFallback: true,
+				customRustBinariesDir: options.getPiCodexOptions().customRustBinariesDir,
+			}),
+		),
 	};
 	const codeDefinitions = Object.fromEntries(
 		createPublicCodeModeTools(codeMode).map((definition) => [definition.name, definition]),
@@ -108,7 +135,10 @@ export function createCodexToolRuntime(options: CodexToolRuntimeOptions): CodexT
 					: NORMAL_CODEX_TOOL_NAMES,
 		resolveExecutionMode: resolveCodexExecutionMode,
 		activateExecutionMode: (mode) => codeMode.setExecutionKind(mode === "notebook" ? "notebook" : "code"),
-		bindEvents: (events) => codeMode.bindEvents(events),
+		bindEvents: (events) => {
+			codeMode.bindEvents(events);
+			events.emit(PI_CODEX_EXEC_SESSIONS_CHANNEL, sessions);
+		},
 		buildCodeModePromptSection: (projectTrusted) => codeMode.buildPromptSection(projectTrusted),
 		resetCodeModePromptTools: () => codeMode.resetPromptTools(),
 		prepareCodeMode: () => codeMode.prepare(),

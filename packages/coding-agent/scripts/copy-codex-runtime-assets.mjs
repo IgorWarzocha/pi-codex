@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,3 +33,18 @@ copyFileSync(
 	join(packageRoot, "src", "tools", "code-mode", "CUSTOM-TOOLS.md"),
 	join(codeModeDirectory, "CUSTOM-TOOLS.md"),
 );
+
+const voiceDirectory = join(outputRoot, "voice");
+mkdirSync(join(voiceDirectory, "lan"), { recursive: true });
+const voiceExecutable = process.platform === "win32" ? "pi-codex-voice.exe" : "pi-codex-voice";
+copyFileSync(
+	join(packageRoot, "src", "voice", "bin", platformArch, voiceExecutable),
+	join(voiceDirectory, voiceExecutable),
+);
+if (process.platform !== "win32") chmodSync(join(voiceDirectory, voiceExecutable), 0o755);
+for (const name of ["REALTIME-SYSTEM-PROMPT.md", "REALTIME-SYSTEM-PROMPT-CHANGELOG.md"]) {
+	copyFileSync(join(packageRoot, "src", "voice", name), join(voiceDirectory, name));
+}
+cpSync(join(packageRoot, "src", "voice", "lan", "assets"), join(voiceDirectory, "lan", "assets"), {
+	recursive: true,
+});

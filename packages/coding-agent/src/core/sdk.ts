@@ -323,12 +323,15 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				options?.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs();
 			const headerRunner = extensionRunnerRef.current;
 			const codexExecutionMode = resolveCodexExecutionMode(model, settingsManager.getExecutionMode());
+			const piCodexSettings = settingsManager.getPiCodexSettings();
 			const codexOptions =
 				model.api === "openai-codex-responses"
 					? {
 							executionMode: codexExecutionMode,
-							forceCachedWebSockets: true,
-							textVerbosity: "low",
+							forceCachedWebSockets: piCodexSettings.openai?.forceCachedWebSockets ?? true,
+							textVerbosity: piCodexSettings.openai?.verbosity ?? "low",
+							fast: piCodexSettings.openai?.fast ?? false,
+							responsesCompaction: piCodexSettings.compaction?.responsesCompaction ?? true,
 						}
 					: {};
 			const requestOptions = {
