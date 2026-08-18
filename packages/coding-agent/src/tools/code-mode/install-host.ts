@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
 	chmodSync,
 	copyFileSync,
@@ -7,6 +7,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	rmSync,
 	statSync,
@@ -23,6 +24,7 @@ const DOWNLOAD_TIMEOUT_MS = 120_000;
 const INSTALL_LOCK_POLL_MS = 200;
 const INSTALL_LOCK_TIMEOUT_MS = 125_000;
 const INSTALL_LOCK_STALE_MS = 180_000;
+const INSTALL_LOCK_OWNER_FILE = "owner.json";
 export interface InstallCodeModeHostOptions {
 	destination: string;
 	platform: string;
@@ -41,7 +43,8 @@ export async function installCodeModeHost(options: InstallCodeModeHostOptions): 
 	if (existsSync(destination)) return;
 	mkdirSync(resolve(destination, ".."), { recursive: true });
 	const lockPath = `${destination}.lock`;
-	if (!(await acquireInstallLock(lockPath, destination, signal))) return;
+	const lockToken = await acquireInstallLock(lockPath, destination, signal);
+	if (!lockToken) return;
 
 	const temporary = mkdtempSync(join(tmpdir(), "pi-codex-code-mode-"));
 	const staged = `${destination}.${process.pid}.tmp`;
@@ -89,26 +92,33 @@ export async function installCodeModeHost(options: InstallCodeModeHostOptions): 
 	} finally {
 		rmSync(staged, { force: true });
 		rmSync(temporary, { recursive: true, force: true });
-		rmSync(lockPath, { recursive: true, force: true });
+		releaseInstallLock(lockPath, lockToken);
 	}
 }
 
-async function acquireInstallLock(
+export async function acquireInstallLock(
 	lockPath: string,
 	destination: string,
 	signal: AbortSignal | undefined,
-): Promise<boolean> {
+): Promise<string | undefined> {
+	const token = randomUUID();
 	const deadline = Date.now() + INSTALL_LOCK_TIMEOUT_MS;
 	while (Date.now() < deadline) {
 		signal?.throwIfAborted();
-		if (existsSync(destination)) return false;
+		if (existsSync(destination)) return undefined;
 		try {
 			mkdirSync(lockPath);
-			return true;
+			try {
+				writeFileSync(join(lockPath, INSTALL_LOCK_OWNER_FILE), JSON.stringify({ token, pid: process.pid }));
+			} catch (error) {
+				rmSync(lockPath, { recursive: true, force: true });
+				throw error;
+			}
+			return token;
 		} catch (error) {
 			if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") throw error;
 			try {
-				if (Date.now() - statSync(lockPath).mtimeMs > INSTALL_LOCK_STALE_MS) {
+				if (canRemoveStaleLock(lockPath)) {
 					rmSync(lockPath, { recursive: true, force: true });
 					continue;
 				}
@@ -119,8 +129,46 @@ async function acquireInstallLock(
 			await delay(INSTALL_LOCK_POLL_MS, undefined, signal ? { signal } : undefined);
 		}
 	}
-	if (existsSync(destination)) return false;
+	if (existsSync(destination)) return undefined;
 	throw new Error(`timed out waiting for code-mode host install lock: ${lockPath}`);
+}
+
+export function releaseInstallLock(lockPath: string, token: string): void {
+	try {
+		const owner = readLockOwner(lockPath);
+		if (owner?.token === token) rmSync(lockPath, { recursive: true, force: true });
+	} catch {
+		// A missing or replaced lock does not belong to this installer.
+	}
+}
+
+function canRemoveStaleLock(lockPath: string): boolean {
+	if (Date.now() - statSync(lockPath).mtimeMs <= INSTALL_LOCK_STALE_MS) return false;
+	const owner = readLockOwner(lockPath);
+	return !owner || !isProcessAlive(owner.pid);
+}
+
+function readLockOwner(lockPath: string): { token: string; pid: number } | undefined {
+	try {
+		const value = JSON.parse(readFileSync(join(lockPath, INSTALL_LOCK_OWNER_FILE), "utf8")) as Record<
+			string,
+			unknown
+		>;
+		return typeof value.token === "string" && Number.isSafeInteger(value.pid) && Number(value.pid) > 0
+			? { token: value.token, pid: Number(value.pid) }
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function isProcessAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return Boolean(error && typeof error === "object" && "code" in error && error.code !== "ESRCH");
+	}
 }
 
 function walk(dir: string): string[] {

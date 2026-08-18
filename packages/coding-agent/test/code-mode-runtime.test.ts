@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEventBus } from "../src/core/event-bus.ts";
+import { createExtensionRuntime, loadExtensions } from "../src/core/extensions/loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -11,6 +12,7 @@ import { runCustomTool } from "../src/tools/code-mode/custom-tool-runner.ts";
 import { parseCustomTool } from "../src/tools/code-mode/custom-tools.ts";
 import { CodeModeDelegateRuntime } from "../src/tools/code-mode/delegate-runtime.ts";
 import { parseRuntimeResponse } from "../src/tools/code-mode/host-protocol.ts";
+import { acquireInstallLock, releaseInstallLock } from "../src/tools/code-mode/install-host.ts";
 import {
 	PREFLIGHT_AVAILABLE_CHANNEL,
 	PREFLIGHT_PROTOCOL,
@@ -210,16 +212,40 @@ describe("Pi-Codex Code Mode", () => {
 	});
 
 	it("parses and directly executes TOML custom tools", async () => {
+		const scriptPath = join(tempDir, "echo-value.mjs");
+		writeFileSync(scriptPath, "process.stdout.write(process.argv[2])");
 		const tool = parseCustomTool(
 			join(tempDir, "echo_value.toml"),
 			[
 				'usage = "await tools.echo_value(input)"',
-				`command = ${JSON.stringify(process.execPath)}`,
-				'args = ["-e", "process.stdout.write(process.argv[1])"]',
+				'command = "echo-value.mjs"',
 				'input = "arg"',
 				"defer_loading = false",
 			].join("\n"),
 		);
+		expect(tool.command).toBe(process.execPath);
+		expect(tool.args).toEqual([scriptPath]);
 		expect(await runCustomTool(tool, "custom-ok", tempDir)).toBe("custom-ok");
+	});
+
+	it("does not release a host install lock replaced by another owner", async () => {
+		const destination = join(tempDir, "codex-code-mode-host");
+		const lockPath = `${destination}.lock`;
+		const first = await acquireInstallLock(lockPath, destination, undefined);
+		expect(first).toBeTypeOf("string");
+		rmSync(lockPath, { recursive: true });
+		const second = await acquireInstallLock(lockPath, destination, undefined);
+		expect(second).toBeTypeOf("string");
+		releaseInstallLock(lockPath, first!);
+		expect(existsSync(lockPath)).toBe(true);
+		releaseInstallLock(lockPath, second!);
+		expect(existsSync(lockPath)).toBe(false);
+	});
+
+	it("rejects extension runtimes paired with a different event bus", async () => {
+		const runtime = createExtensionRuntime();
+		await expect(loadExtensions([], tempDir, createEventBus(), runtime)).rejects.toThrow(
+			"must reference the same event bus",
+		);
 	});
 });

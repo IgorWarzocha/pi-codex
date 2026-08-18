@@ -552,6 +552,9 @@ async function loadExtensionsInternal(
 	runtime?: ExtensionRuntime,
 	useCache = false,
 ): Promise<LoadExtensionsResult> {
+	if (eventBus && runtime && eventBus !== runtime.events) {
+		throw new Error("Extension runtime and explicit event bus must reference the same event bus");
+	}
 	const extensions: Extension[] = [];
 	const errors: Array<{ path: string; error: string }> = [];
 	const cacheToken = useCache ? useExtensionCacheCwd(cwd) : undefined;
