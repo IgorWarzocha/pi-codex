@@ -121,7 +121,7 @@ required_paths=(
     "packages/ai/src/image-models.generated.ts"
     "packages/ai/src/providers/data/.manifest.json"
     "packages/coding-agent/package.json"
-    "packages/coding-agent/src/utils/image-resize-worker.ts"
+    "packages/ai/src/utils/image-resize-worker.ts"
     "packages/coding-agent/src/core/export-html/template.css"
 )
 

@@ -1,27 +1,9 @@
-/**
- * OpenAI Codex (ChatGPT OAuth) flow
- *
- * NOTE: This module uses Node.js crypto and http for the OAuth callback.
- * It is only intended for CLI use, not browser environments.
- */
-
-// NEVER convert to top-level imports - breaks browser/Vite builds
-let _randomBytes: typeof import("node:crypto").randomBytes | null = null;
-let _http: typeof import("node:http") | null = null;
-if (typeof process !== "undefined" && (process.versions?.node || process.versions?.bun)) {
-	import("node:crypto").then((m) => {
-		_randomBytes = m.randomBytes;
-	});
-	import("node:http").then((m) => {
-		_http = m;
-	});
-}
-
+import { createHash, randomBytes } from "node:crypto";
+import { createServer } from "node:http";
 import { getProviderEnvValue } from "../../utils/provider-env.ts";
 import type { OAuthAuth, OAuthCredential, ProviderAuthInteraction } from "../types.ts";
 import { pollOAuthDeviceCodeFlow } from "./device-code.ts";
 import { oauthErrorHtml, oauthSuccessHtml } from "./oauth-page.ts";
-import { generatePKCE } from "./pkce.ts";
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_BASE_URL = "https://auth.openai.com";
@@ -35,7 +17,8 @@ const DEVICE_REDIRECT_URI = `${AUTH_BASE_URL}/deviceauth/callback`;
 const DEVICE_CODE_TIMEOUT_SECONDS = 15 * 60;
 const OPENAI_CODEX_BROWSER_LOGIN_METHOD = "browser";
 const OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD = "device_code";
-const SCOPE = "openid profile email offline_access";
+export const OPENAI_CODEX_NATIVE_SCOPE =
+	"openid profile email offline_access api.connectors.read api.connectors.invoke";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth";
 
 type OAuthToken = { access: string; refresh: string; expires: number };
@@ -64,10 +47,13 @@ type JwtPayload = {
 };
 
 function createState(): string {
-	if (!_randomBytes) {
-		throw new Error("OpenAI Codex OAuth is only available in Node.js environments");
-	}
-	return _randomBytes(16).toString("hex");
+	return randomBytes(16).toString("hex");
+}
+
+async function createPkce(): Promise<{ verifier: string; challenge: string }> {
+	const verifier = randomBytes(32).toString("base64url");
+	const challenge = createHash("sha256").update(verifier).digest("base64url");
+	return { verifier, challenge };
 }
 
 function parseAuthorizationInput(input: string): { code?: string; state?: string } {
@@ -104,9 +90,7 @@ function decodeJwt(token: string): JwtPayload | null {
 	try {
 		const parts = token.split(".");
 		if (parts.length !== 3) return null;
-		const payload = parts[1] ?? "";
-		const decoded = atob(payload);
-		return JSON.parse(decoded) as JwtPayload;
+		return JSON.parse(Buffer.from(parts[1] ?? "", "base64url").toString("utf8")) as JwtPayload;
 	} catch {
 		return null;
 	}
@@ -290,17 +274,17 @@ async function pollOpenAICodexDeviceAuth(device: DeviceAuthInfo, signal: AbortSi
 	});
 }
 
-async function createAuthorizationFlow(
-	originator: string = "pi",
+export async function createOpenAICodexNativeAuthorizationFlow(
+	originator = "pi",
 ): Promise<{ verifier: string; state: string; url: string }> {
-	const { verifier, challenge } = await generatePKCE();
+	const { verifier, challenge } = await createPkce();
 	const state = createState();
 
 	const url = new URL(AUTHORIZE_URL);
 	url.searchParams.set("response_type", "code");
 	url.searchParams.set("client_id", CLIENT_ID);
 	url.searchParams.set("redirect_uri", REDIRECT_URI);
-	url.searchParams.set("scope", SCOPE);
+	url.searchParams.set("scope", OPENAI_CODEX_NATIVE_SCOPE);
 	url.searchParams.set("code_challenge", challenge);
 	url.searchParams.set("code_challenge_method", "S256");
 	url.searchParams.set("state", state);
@@ -318,10 +302,6 @@ type OAuthServerInfo = {
 };
 
 function startLocalOAuthServer(state: string): Promise<OAuthServerInfo> {
-	if (!_http) {
-		throw new Error("OpenAI Codex OAuth is only available in Node.js environments");
-	}
-
 	let settleWait: ((value: { code: string } | null) => void) | undefined;
 	const waitForCodePromise = new Promise<{ code: string } | null>((resolve) => {
 		let settled = false;
@@ -332,7 +312,7 @@ function startLocalOAuthServer(state: string): Promise<OAuthServerInfo> {
 		};
 	});
 
-	const server = _http.createServer((req, res) => {
+	const server = createServer((req, res) => {
 		try {
 			const url = new URL(req.url || "", "http://localhost");
 			if (url.pathname !== "/auth/callback") {
@@ -393,7 +373,7 @@ function startLocalOAuthServer(state: string): Promise<OAuthServerInfo> {
 	});
 }
 
-function getAccountId(accessToken: string): string | null {
+export function getOpenAICodexAccountId(accessToken: string): string | null {
 	const payload = decodeJwt(accessToken);
 	const auth = payload?.[JWT_CLAIM_PATH];
 	const accountId = auth?.chatgpt_account_id;
@@ -401,7 +381,7 @@ function getAccountId(accessToken: string): string | null {
 }
 
 function credentialsFromToken(token: OAuthToken): OAuthCredential {
-	const accountId = getAccountId(token.access);
+	const accountId = getOpenAICodexAccountId(token.access);
 	if (!accountId) {
 		throw new Error("Failed to extract accountId from token");
 	}
@@ -443,7 +423,7 @@ async function loginOpenAICodexDeviceCode(interaction: ProviderAuthInteraction):
 }
 
 async function loginOpenAICodex(interaction: ProviderAuthInteraction): Promise<OAuthCredential> {
-	const { verifier, state, url } = await createAuthorizationFlow();
+	const { verifier, state, url } = await createOpenAICodexNativeAuthorizationFlow();
 	const server = await startLocalOAuthServer(state);
 	const manualAbort = new AbortController();
 	const onAbort = () => server.cancelWait();
@@ -513,7 +493,7 @@ async function refreshOpenAICodexToken(refreshToken: string, signal: AbortSignal
 }
 
 export const openaiCodexOAuth: OAuthAuth = {
-	name: "OpenAI (ChatGPT Plus/Pro)",
+	name: "ChatGPT Plus/Pro (Codex Subscription)",
 	isSubscription: true,
 
 	async login(interaction) {

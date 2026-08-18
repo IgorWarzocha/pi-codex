@@ -3,6 +3,7 @@ import { lazyOAuth } from "../auth/helpers.ts";
 import { loadOpenAICodexOAuth } from "../auth/oauth/load.ts";
 import { createProvider, type Provider } from "../models.ts";
 import { OPENAI_CODEX_MODELS } from "./openai-codex.models.ts";
+import { withOpenAICodexDaybreakModels } from "./openai-codex-model-catalog.ts";
 
 export function openaiCodexProvider(): Provider<"openai-codex-responses"> {
 	return createProvider({
@@ -11,12 +12,12 @@ export function openaiCodexProvider(): Provider<"openai-codex-responses"> {
 		baseUrl: "https://chatgpt.com/backend-api",
 		auth: {
 			oauth: lazyOAuth({
-				name: "OpenAI (ChatGPT Plus/Pro)",
+				name: "ChatGPT Plus/Pro (Codex Subscription)",
 				isSubscription: true,
 				load: loadOpenAICodexOAuth,
 			}),
 		},
-		models: Object.values(OPENAI_CODEX_MODELS),
+		models: withOpenAICodexDaybreakModels(Object.values(OPENAI_CODEX_MODELS)),
 		api: openAICodexResponsesApi(),
 	});
 }

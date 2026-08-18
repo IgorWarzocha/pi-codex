@@ -39,8 +39,16 @@ export * from "./types.ts";
 export * from "./utils/diagnostics.ts";
 export { estimateContextTokens } from "./utils/estimate.ts";
 export * from "./utils/event-stream.ts";
+export { applyExifOrientation } from "./utils/exif-orientation.ts";
+export {
+	formatDimensionNote,
+	type ImageResizeOptions,
+	type ResizedImage,
+	resizeImage,
+} from "./utils/image-resize.ts";
 export * from "./utils/json-parse.ts";
 export * from "./utils/overflow.ts";
+export { loadPhoton, type PhotonImageType } from "./utils/photon.ts";
 export * from "./utils/retry.ts";
 export { contentText } from "./utils/text.ts";
 export * from "./utils/typebox-helpers.ts";

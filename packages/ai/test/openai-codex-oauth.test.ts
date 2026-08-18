@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openaiCodexOAuth } from "../src/auth/oauth/openai-codex.ts";
+import {
+	createOpenAICodexNativeAuthorizationFlow,
+	OPENAI_CODEX_NATIVE_SCOPE,
+	openaiCodexOAuth,
+} from "../src/auth/oauth/openai-codex.ts";
 
 const neverAbortedSignal = new AbortController().signal;
 
@@ -72,6 +76,15 @@ describe("OpenAI Codex OAuth", () => {
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 		vi.useRealTimers();
+	});
+
+	it("uses the native Codex connector scope and originator", async () => {
+		const flow = await createOpenAICodexNativeAuthorizationFlow("pi-codex-conversion");
+		const url = new URL(flow.url);
+
+		expect(url.searchParams.get("scope")).toBe(OPENAI_CODEX_NATIVE_SCOPE);
+		expect(url.searchParams.get("originator")).toBe("pi-codex-conversion");
+		expect(openaiCodexOAuth.name).toBe("ChatGPT Plus/Pro (Codex Subscription)");
 	});
 
 	it("logs in with the OpenAI Codex device code flow", async () => {

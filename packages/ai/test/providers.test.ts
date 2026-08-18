@@ -66,6 +66,18 @@ describe("builtin providers", () => {
 		expect(getBuiltinModel("anthropic", "claude-haiku-4-5").compat?.supportsStrictTools).toBe(true);
 	});
 
+	it("includes pi-codex Daybreak subscription models", () => {
+		const models = builtinModels();
+		expect(models.getModel("openai-codex", "gpt-daybreak-blue-latest")).toMatchObject({
+			contextWindow: 272_000,
+			maxTokens: 128_000,
+		});
+		expect(models.getModel("openai-codex", "gpt-daybreak-red-latest")).toMatchObject({
+			contextWindow: 372_000,
+			maxTokens: 128_000,
+		});
+	});
+
 	it("uses official Kimi K3 pricing for Moonshot providers", () => {
 		const models = builtinModels();
 		for (const provider of ["moonshotai", "moonshotai-cn"]) {

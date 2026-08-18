@@ -11,6 +11,10 @@
 - Added provider-neutral `toolChoice` support to simple stream requests.
 - Added China-specific ZAI Coding Plan models, including GLM-4.6V vision support, and API-equivalent usage cost estimates for models with published PAYG prices ([#8220](https://github.com/earendil-works/pi/issues/8220)).
 
+### Changed
+
+- Replaced the built-in OpenAI Codex provider with the native pi-codex implementation, including proxy-aware Undici WebSockets, fresh connection recovery, sticky SSE fallback, cached continuation, Responses Lite image processing, prewarming, turn-state replay, bounded overload recovery, native OAuth scopes, and Daybreak models.
+
 ### Fixed
 
 - Fixed Azure OpenAI Responses ignoring `toolChoice` in provider-specific stream requests.
