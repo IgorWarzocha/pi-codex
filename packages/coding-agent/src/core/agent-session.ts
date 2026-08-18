@@ -47,6 +47,7 @@ import {
 	streamSimple,
 } from "@earendil-works/pi-ai/compat";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
+import { createCodexToolRuntime, DEFAULT_CODEX_TOOL_NAMES } from "../tools/runtime.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
@@ -108,7 +109,6 @@ import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
-import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import { addUsageToTotals, createUsageTotals } from "./usage-totals.ts";
 
@@ -210,7 +210,7 @@ export interface AgentSessionConfig {
 	customTools?: ToolDefinition[];
 	/** Canonical model/auth runtime used by coding-agent internals. */
 	modelRuntime: ModelRuntime;
-	/** Initial active built-in tool names. Default: [read, bash, edit, write] */
+	/** Initial active native tool names. Defaults to the Pi-Codex tool set. */
 	initialActiveToolNames?: string[];
 	/** Optional allowlist of tool names. When provided, only these tool names are exposed. */
 	allowedToolNames?: string[];
@@ -293,6 +293,14 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 	return tokens;
 }
 
+function isToolCallOnlyAssistantMessage(message: unknown): boolean {
+	if (!message || typeof message !== "object" || !("role" in message) || message.role !== "assistant") return false;
+	if (!("content" in message) || !Array.isArray(message.content) || message.content.length === 0) return false;
+	return message.content.every(
+		(item) => typeof item === "object" && item !== null && "type" in item && item.type === "toolCall",
+	);
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -364,6 +372,7 @@ export class AgentSession {
 	private _extensionErrorUnsubscriber?: () => void;
 
 	private _modelRuntime: ModelRuntime;
+	private readonly _codexToolRuntime = createCodexToolRuntime();
 
 	// Tool registry for extension getTools/setTools
 	private _toolRegistry: Map<string, AgentTool> = new Map();
@@ -502,6 +511,7 @@ export class AgentSession {
 
 		this.agent.afterToolCall = async ({ toolCall, args, result, isError }) => {
 			const runner = this._extensionRunner;
+			const effectiveIsError = isError || this._codexToolRuntime.isErrorResult(toolCall.name, result.details);
 			const hookResult = runner.hasHandlers("tool_result")
 				? await runner.emitToolResult({
 						type: "tool_result",
@@ -510,7 +520,7 @@ export class AgentSession {
 						input: args as Record<string, unknown>,
 						content: result.content,
 						details: result.details,
-						isError,
+						isError: effectiveIsError,
 						usage: result.usage,
 					})
 				: undefined;
@@ -521,14 +531,14 @@ export class AgentSession {
 				autoResizeImages: this.settingsManager.getImageAutoResize(),
 			});
 
-			if (!hookResult && normalizedContent === content) {
+			if (!hookResult && normalizedContent === content && effectiveIsError === isError) {
 				return undefined;
 			}
 
 			return {
 				content: normalizedContent,
 				details: hookResult?.details,
-				isError: hookResult?.isError ?? isError,
+				isError: hookResult?.isError ?? effectiveIsError,
 				usage: hookResult?.usage,
 			};
 		};
@@ -755,6 +765,9 @@ export class AgentSession {
 			await this._extensionRunner.emit(extensionEvent);
 			this._turnIndex++;
 		} else if (event.type === "message_start") {
+			if (event.message.role !== "toolResult" && !isToolCallOnlyAssistantMessage(event.message)) {
+				this._codexToolRuntime.resetExplorationGroup();
+			}
 			const extensionEvent: MessageStartEvent = {
 				type: "message_start",
 				message: event.message,
@@ -787,6 +800,7 @@ export class AgentSession {
 				this._replaceMessageInPlace(event.message, normalized);
 			}
 		} else if (event.type === "tool_execution_start") {
+			this._codexToolRuntime.recordToolStart(event.toolCallId, event.toolName, event.args);
 			const extensionEvent: ToolExecutionStartEvent = {
 				type: "tool_execution_start",
 				toolCallId: event.toolCallId,
@@ -804,6 +818,7 @@ export class AgentSession {
 			};
 			await this._extensionRunner.emit(extensionEvent);
 		} else if (event.type === "tool_execution_end") {
+			this._codexToolRuntime.recordToolEnd(event.toolCallId, event.toolName);
 			const extensionEvent: ToolExecutionEndEvent = {
 				type: "tool_execution_end",
 				toolCallId: event.toolCallId,
@@ -860,6 +875,7 @@ export class AgentSession {
 		);
 		this._disconnectFromAgent();
 		this._eventListeners = [];
+		void this._codexToolRuntime.shutdown();
 		cleanupSessionResources(this.sessionId);
 	}
 
@@ -1060,6 +1076,7 @@ export class AgentSession {
 			selectedTools: validToolNames,
 			toolSnippets,
 			promptGuidelines,
+			shell: this.settingsManager.getShellPath(),
 		};
 		return buildSystemPrompt(this._baseSystemPromptOptions);
 	}
@@ -2651,9 +2668,6 @@ export class AgentSession {
 		flagValues?: Map<string, boolean | string>;
 		includeAllExtensionTools?: boolean;
 	}): void {
-		const autoResizeImages = this.settingsManager.getImageAutoResize();
-		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
-		const shellPath = this.settingsManager.getShellPath();
 		const baseToolDefinitions = this._baseToolsOverride
 			? Object.fromEntries(
 					Object.entries(this._baseToolsOverride).map(([name, tool]) => [
@@ -2661,10 +2675,7 @@ export class AgentSession {
 						createToolDefinitionFromAgentTool(tool),
 					]),
 				)
-			: createAllToolDefinitions(this._cwd, {
-					read: { autoResizeImages },
-					bash: { commandPrefix: shellCommandPrefix, shellPath },
-				});
+			: this._codexToolRuntime.definitions;
 
 		this._baseToolDefinitions = new Map(
 			Object.entries(baseToolDefinitions).map(([name, tool]) => [name, tool as ToolDefinition]),
@@ -2692,7 +2703,7 @@ export class AgentSession {
 
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
-			: ["read", "bash", "edit", "write"];
+			: [...DEFAULT_CODEX_TOOL_NAMES];
 		const baseActiveToolNames = options.activeToolNames ?? defaultActiveToolNames;
 		this._refreshToolRegistry({
 			activeToolNames: baseActiveToolNames,

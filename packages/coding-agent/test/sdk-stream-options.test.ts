@@ -129,6 +129,16 @@ describe("createAgentSession stream options", () => {
 		expect(options?.timeoutMs).toBe(1234);
 	});
 
+	it("applies the native Pi-Codex provider defaults", async () => {
+		const options = await captureStreamOptions("openai-codex-responses", {});
+
+		expect(options as SimpleStreamOptions & Record<string, unknown>).toMatchObject({
+			executionMode: "normal",
+			forceCachedWebSockets: true,
+			textVerbosity: "low",
+		});
+	});
+
 	it("defaults timeoutMs from httpIdleTimeoutMs for all providers", async () => {
 		const options = await captureStreamOptions("openai-completions", { httpIdleTimeoutMs: 1234 });
 

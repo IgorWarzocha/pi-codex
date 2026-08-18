@@ -187,6 +187,23 @@ for platform in "${PLATFORMS[@]}"; do
     cp README.md "$OUTPUT_DIR/$platform/"
     cp CHANGELOG.md "$OUTPUT_DIR/$platform/"
     cp ../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm "$OUTPUT_DIR/$platform/"
+    mkdir -p "$OUTPUT_DIR/$platform/shell"
+    cp src/shell/tree-sitter-bash.wasm "$OUTPUT_DIR/$platform/shell/"
+    for tool_spec in \
+        "apply-patch:apply_patch" \
+        "exec:exec_bridge" \
+        "view-image:view_image" \
+        "web-run:web_run" \
+        "imagegen:imagegen"; do
+        tool_dir="${tool_spec%%:*}"
+        tool_name="${tool_spec##*:}"
+        tool_file="$tool_name"
+        if [[ "$platform" == windows-* ]]; then
+            tool_file="${tool_name}.exe"
+        fi
+        mkdir -p "$OUTPUT_DIR/$platform/tools/$tool_dir"
+        cp "src/tools/$tool_dir/bin/$platform/$tool_file" "$OUTPUT_DIR/$platform/tools/$tool_dir/"
+    done
     mkdir -p "$OUTPUT_DIR/$platform/theme"
     cp dist/modes/interactive/theme/*.json "$OUTPUT_DIR/$platform/theme/"
     mkdir -p "$OUTPUT_DIR/$platform/assets"

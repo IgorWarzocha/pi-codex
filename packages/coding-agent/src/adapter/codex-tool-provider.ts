@@ -1,0 +1,208 @@
+import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
+import type { ExtensionContext } from "../core/extensions/types.ts";
+import {
+	isCanonicalCodexAliasModel,
+	isCanonicalCodexBaseUrl,
+	isCanonicalCodexSubscriptionModel,
+	isCodexTransportModel,
+	isOpenAICodexModel,
+} from "./prompt/codex-model.ts";
+
+export const CODEX_TOOL_PROVIDER_UNSUPPORTED_MESSAGE =
+	"web_run/imagegen requires an OpenAI Codex-compatible Responses provider or /login openai-codex";
+
+const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api";
+const JWT_CLAIM_PATH = "https://api.openai.com/auth";
+
+export interface CodexToolProvider {
+	route: "openai-codex" | "configured-responses";
+	baseUrl: string;
+	responsesUrl: string;
+	searchUrl: string;
+	model: string | undefined;
+	token: string;
+	accountId: string;
+}
+
+export type AllowConfiguredCodexToolProvider = (model: ExtensionContext["model"]) => boolean;
+
+const CODEX_ORIGINATOR = "codex_cli_rs";
+const OPENAI_CODEX_PROVIDER = "openai-codex";
+
+function extractAccountId(token: string): string {
+	try {
+		const parts = token.split(".");
+		if (parts.length !== 3) throw new Error("Invalid token");
+		const payload = JSON.parse(Buffer.from(parts[1] ?? "", "base64").toString("utf8"));
+		const accountId = payload?.[JWT_CLAIM_PATH]?.chatgpt_account_id;
+		if (typeof accountId !== "string" || accountId.length === 0) throw new Error("No account ID in token");
+		return accountId;
+	} catch {
+		throw new Error("Failed to extract accountId from token");
+	}
+}
+
+export function resolveCodexApiProviderBaseUrl(modelBaseUrl: string | undefined): string {
+	const base = modelBaseUrl?.trim() || DEFAULT_CODEX_BASE_URL;
+	const normalized = base.replace(/\/+$/, "");
+	try {
+		const url = new URL(normalized);
+		if (url.pathname === "" || url.pathname === "/") return `${normalized}/api/codex`;
+	} catch {
+		// Keep string-only fallback below.
+	}
+	if (normalized.endsWith("/codex/responses")) return normalized.slice(0, -"/responses".length);
+	if (normalized.endsWith("/codex")) return normalized;
+	if (normalized.endsWith("/backend-api") || normalized.endsWith("/api")) return `${normalized}/codex`;
+	return normalized;
+}
+
+export function resolveCodexResponsesUrl(providerBaseUrl: string): string {
+	const base = providerBaseUrl.replace(/\/+$/, "");
+	if (base.endsWith("/codex/responses")) return base;
+	return `${resolveCodexApiProviderBaseUrl(base)}/responses`;
+}
+
+export function resolveCodexSearchUrl(providerBaseUrl: string): string {
+	const normalized = providerBaseUrl.trim().replace(/\/+$/, "");
+	if (normalized.endsWith("/alpha/search")) return normalized;
+	const base = normalized.endsWith("/responses")
+		? normalized.slice(0, -"/responses".length)
+		: resolveCodexApiProviderBaseUrl(normalized);
+	return `${base}/alpha/search`;
+}
+
+function headerValue(headers: ProviderHeaders | undefined, name: string): string | undefined {
+	if (!headers) return undefined;
+	const lowerName = name.toLowerCase();
+	for (const [key, value] of Object.entries(headers)) {
+		if (key.toLowerCase() === lowerName) return typeof value === "string" ? value : undefined;
+	}
+	return undefined;
+}
+
+function isResponsesModel(model: ExtensionContext["model"]): boolean {
+	return Boolean(model?.api?.includes("responses"));
+}
+
+function isUsableOpenAICodexModel(model: ExtensionContext["model"]): boolean {
+	return isOpenAICodexModel(model) && isResponsesModel(model);
+}
+
+function firstOpenAICodexModel(models: Model<Api>[]): Model<Api> | undefined {
+	return models.find(isUsableOpenAICodexModel);
+}
+
+function resolveOpenAICodexAuthModel(ctx: ExtensionContext): Model<Api> | undefined {
+	const registry = ctx.modelRegistry as {
+		find?: (provider: string, modelId: string) => Model<Api> | undefined;
+		getAvailable?: () => Model<Api>[];
+		getAll?: () => Model<Api>[];
+	};
+	const currentId = ctx.model?.id;
+	const direct = currentId ? registry.find?.(OPENAI_CODEX_PROVIDER, currentId) : undefined;
+	if (isUsableOpenAICodexModel(direct)) return direct;
+	const preferred = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4-mini", "gpt-5.3-codex-spark"]
+		.map((id) => registry.find?.(OPENAI_CODEX_PROVIDER, id))
+		.find((model): model is Model<Api> => isUsableOpenAICodexModel(model));
+	if (preferred) return preferred;
+	const available = registry.getAvailable?.();
+	if (available) return firstOpenAICodexModel(available);
+	const all = registry.getAll?.();
+	return all ? firstOpenAICodexModel(all) : undefined;
+}
+
+function resolveCodexToolAuthModel(
+	ctx: ExtensionContext,
+	allowConfiguredProvider?: AllowConfiguredCodexToolProvider,
+): Model<Api> {
+	if (isCodexTransportModel(ctx.model) && isResponsesModel(ctx.model)) return ctx.model as Model<Api>;
+	if (isResponsesModel(ctx.model) && allowConfiguredProvider?.(ctx.model)) return ctx.model as Model<Api>;
+	const openAICodexModel = resolveOpenAICodexAuthModel(ctx);
+	if (openAICodexModel) return openAICodexModel;
+	throw new Error(
+		`${CODEX_TOOL_PROVIDER_UNSUPPORTED_MESSAGE}; run /login openai-codex or select an OpenAI Codex-compatible provider`,
+	);
+}
+
+function resolveConfiguredResponsesUrl(modelBaseUrl: string | undefined): string {
+	const base = modelBaseUrl?.trim().replace(/\/+$/, "");
+	if (!base) throw new Error("Configured Responses provider is missing a base URL");
+	return base.endsWith("/responses") ? base : `${base}/responses`;
+}
+
+export async function resolveCodexToolProvider(
+	ctx: ExtensionContext,
+	allowConfiguredProvider?: AllowConfiguredCodexToolProvider,
+): Promise<CodexToolProvider> {
+	const model = resolveCodexToolAuthModel(ctx, allowConfiguredProvider);
+	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+	if (!auth.ok) throw new Error(auth.error);
+	const resolvedBaseUrl = auth.baseUrl ?? model.baseUrl;
+	const stockOpenAICodex = isOpenAICodexModel(model);
+	const canonicalSubscription = isCanonicalCodexSubscriptionModel({ ...model, baseUrl: resolvedBaseUrl });
+	const canonicalAlias = isCanonicalCodexAliasModel(model);
+	if (canonicalAlias && !isCanonicalCodexBaseUrl(resolvedBaseUrl)) {
+		throw new Error("Canonical OpenAI Codex subscription auth is required.");
+	}
+	const codexTransport = stockOpenAICodex || canonicalSubscription;
+	const authorization = headerValue(auth.headers, "Authorization")
+		?.match(/^Bearer\s+(.+)$/i)?.[1]
+		?.trim();
+	const token = codexTransport ? (auth.apiKey ?? authorization) : (authorization ?? auth.apiKey);
+	if (!token) throw new Error(CODEX_TOOL_PROVIDER_UNSUPPORTED_MESSAGE);
+	const baseUrl = codexTransport
+		? resolveCodexApiProviderBaseUrl(resolvedBaseUrl)
+		: resolvedBaseUrl?.trim().replace(/\/+$/, "");
+	if (!baseUrl) throw new Error("Configured Responses provider is missing a base URL");
+	const responsesUrl = codexTransport ? resolveCodexResponsesUrl(baseUrl) : resolveConfiguredResponsesUrl(baseUrl);
+	return {
+		route: codexTransport ? "openai-codex" : "configured-responses",
+		baseUrl,
+		responsesUrl,
+		searchUrl: resolveCodexSearchUrl(responsesUrl),
+		model: model.id,
+		token,
+		accountId: headerValue(auth.headers, "chatgpt-account-id") ?? (codexTransport ? extractAccountId(token) : ""),
+	};
+}
+
+export function codexToolProviderHeaders(provider: CodexToolProvider): Headers {
+	const headers = new Headers();
+	headers.set("Authorization", `Bearer ${provider.token}`);
+	headers.set("ChatGPT-Account-ID", provider.accountId);
+	headers.set("originator", CODEX_ORIGINATOR);
+	headers.set("User-Agent", codexWebRunUserAgent(CODEX_ORIGINATOR));
+	headers.set("version", "0.0.0");
+	headers.set("content-type", "application/json");
+	return headers;
+}
+
+export function codexWebRunUserAgent(originator: string = CODEX_ORIGINATOR): string {
+	const platform =
+		process.platform === "darwin"
+			? "Mac OS"
+			: process.platform === "win32"
+				? "Windows"
+				: process.platform === "linux"
+					? "Linux"
+					: process.platform;
+	const release = "unknown";
+	const arch = process.arch === "arm64" ? "arm64" : process.arch;
+	const terminal = process.env.TERM_PROGRAM?.trim() || process.env.TERM?.trim() || "unknown";
+	return `${originator}/0.0.0 (${platform} ${release}; ${arch}) ${terminal}`;
+}
+
+export function codexToolProviderEnv(provider: CodexToolProvider): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		PI_CODEX_ACCESS_TOKEN: provider.token,
+		PI_CODEX_ACCOUNT_ID: provider.accountId,
+		PI_CODEX_BASE_URL: provider.baseUrl,
+		PI_CODEX_RESPONSES_URL: provider.responsesUrl,
+		PI_CODEX_SEARCH_URL: provider.searchUrl,
+		...(provider.model ? { PI_CODEX_MODEL: provider.model } : {}),
+	};
+	if (provider.route === "configured-responses") delete env.PI_CODEX_AGENT_IDENTITY_JWT;
+	return env;
+}

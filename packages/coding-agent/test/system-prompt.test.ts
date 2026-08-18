@@ -2,114 +2,45 @@ import { describe, expect, test } from "vitest";
 import { buildSystemPrompt } from "../src/core/system-prompt.ts";
 
 describe("buildSystemPrompt", () => {
-	describe("empty tools", () => {
-		test("shows (none) for empty tools list", () => {
-			const prompt = buildSystemPrompt({
-				selectedTools: [],
-				contextFiles: [],
-				skills: [],
-				cwd: process.cwd(),
-			});
-
-			expect(prompt).toContain("Available tools:\n(none)");
+	test("builds the native Pi-Codex prompt without the stock tool scaffold", () => {
+		const prompt = buildSystemPrompt({
+			cwd: "/workspace",
+			shell: "/usr/bin/zsh",
+			selectedTools: ["exec_command", "apply_patch"],
+			toolSnippets: { exec_command: "Run command", apply_patch: "Patch files" },
 		});
 
-		test("shows file paths guideline even with no tools", () => {
-			const prompt = buildSystemPrompt({
-				selectedTools: [],
-				contextFiles: [],
-				skills: [],
-				cwd: process.cwd(),
-			});
-
-			expect(prompt).toContain("Show file paths clearly");
-		});
+		expect(prompt).not.toContain("Available tools:");
+		expect(prompt).not.toContain("You are an expert coding assistant operating inside pi");
+		expect(prompt).toContain("- Use exec_command for shell commands, file inspection, builds, and tests");
+		expect(prompt).toContain("- Use apply_patch for text-file changes, including creates/deletes/moves");
+		expect(prompt).toContain(
+			"Current shell: /usr/bin/zsh; follow its syntax, quoting, and variable rules; status is read-only, capture $? as rc",
+		);
+		expect(prompt).toContain("Current working directory: /workspace");
 	});
 
-	describe("default tools", () => {
-		test("includes all default tools when snippets are provided", () => {
-			const prompt = buildSystemPrompt({
-				toolSnippets: {
-					read: "Read file contents",
-					bash: "Execute bash commands",
-					edit: "Make surgical edits",
-					write: "Create or overwrite files",
-				},
-				contextFiles: [],
-				skills: [],
-				cwd: process.cwd(),
-			});
-
-			expect(prompt).toContain("- read:");
-			expect(prompt).toContain("- bash:");
-			expect(prompt).toContain("- edit:");
-			expect(prompt).toContain("- write:");
+	test("preserves explicit prompt content and merges project guidance directly", () => {
+		const prompt = buildSystemPrompt({
+			customPrompt: "Own the outcome.",
+			appendSystemPrompt: "Keep changes small.",
+			promptGuidelines: ["Inspect before editing", " Inspect before editing "],
+			contextFiles: [{ path: "/workspace/AGENTS.md", content: "Project rule" }],
+			cwd: "/workspace",
+			shell: "/bin/bash",
 		});
 
-		test("instructs models to resolve pi docs and examples under absolute base paths", () => {
-			const prompt = buildSystemPrompt({
-				contextFiles: [],
-				skills: [],
-				cwd: process.cwd(),
-			});
-
-			expect(prompt).toContain(
-				"- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory",
-			);
-			expect(prompt).toContain("environment variables (docs/environment-variables.md)");
-		});
+		expect(prompt.startsWith("Own the outcome.")).toBe(true);
+		expect(prompt.match(/- Inspect before editing/g)).toHaveLength(1);
+		expect(prompt).toContain("Keep changes small.");
+		expect(prompt).toContain('<project_instructions path="/workspace/AGENTS.md">\nProject rule');
 	});
 
-	describe("custom tool snippets", () => {
-		test("includes custom tools in available tools section when promptSnippet is provided", () => {
-			const prompt = buildSystemPrompt({
-				selectedTools: ["read", "dynamic_tool"],
-				toolSnippets: {
-					dynamic_tool: "Run dynamic test behavior",
-				},
-				contextFiles: [],
-				skills: [],
-				cwd: process.cwd(),
-			});
+	test("selects Code Mode guidance without normal-mode shell wording", () => {
+		const prompt = buildSystemPrompt({ cwd: "/workspace", shell: "/bin/bash", mode: "code" });
 
-			expect(prompt).toContain("- dynamic_tool: Run dynamic test behavior");
-		});
-
-		test("omits custom tools from available tools section when promptSnippet is not provided", () => {
-			const prompt = buildSystemPrompt({
-				selectedTools: ["read", "dynamic_tool"],
-				contextFiles: [],
-				skills: [],
-				cwd: process.cwd(),
-			});
-
-			expect(prompt).not.toContain("dynamic_tool");
-		});
-	});
-
-	describe("prompt guidelines", () => {
-		test("appends promptGuidelines to default guidelines", () => {
-			const prompt = buildSystemPrompt({
-				selectedTools: ["read", "dynamic_tool"],
-				promptGuidelines: ["Use dynamic_tool for project summaries."],
-				contextFiles: [],
-				skills: [],
-				cwd: process.cwd(),
-			});
-
-			expect(prompt).toContain("- Use dynamic_tool for project summaries.");
-		});
-
-		test("deduplicates and trims promptGuidelines", () => {
-			const prompt = buildSystemPrompt({
-				selectedTools: ["read", "dynamic_tool"],
-				promptGuidelines: ["Use dynamic_tool for summaries.", "  Use dynamic_tool for summaries.  ", "   "],
-				contextFiles: [],
-				skills: [],
-				cwd: process.cwd(),
-			});
-
-			expect(prompt.match(/- Use dynamic_tool for summaries\./g)).toHaveLength(1);
-		});
+		expect(prompt).toContain("- Use tools.exec_command for shell commands; prefer rg and rg --files");
+		expect(prompt).toContain("- Use text() only for concise final output");
+		expect(prompt).not.toContain("Use exec_command for shell commands, file inspection");
 	});
 });

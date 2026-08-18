@@ -122,6 +122,8 @@ required_paths=(
     "packages/ai/src/providers/data/.manifest.json"
     "packages/coding-agent/package.json"
     "packages/ai/src/utils/image-resize-worker.ts"
+    "packages/coding-agent/src/shell/tree-sitter-bash.wasm"
+    "packages/coding-agent/src/tools/exec/bin/linux-x64/exec_bridge"
     "packages/coding-agent/src/core/export-html/template.css"
 )
 

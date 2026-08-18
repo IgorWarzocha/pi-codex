@@ -9,31 +9,29 @@ import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { type CreateAgentSessionOptions, createAgentSession, type InlineExtension } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { DEFAULT_CODEX_TOOL_NAMES } from "../src/tools/runtime.ts";
 
 type ToolOptions = Pick<CreateAgentSessionOptions, "tools" | "excludeTools" | "noTools" | "customTools">;
 
-describe("defaultTools setting", () => {
+describe("Pi-Codex default tools", () => {
 	let tempDir: string;
 	let agentDir: string;
 
 	beforeEach(() => {
-		tempDir = join(tmpdir(), `pi-default-tools-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		tempDir = join(tmpdir(), `pi-codex-tools-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		agentDir = join(tempDir, "agent");
 		mkdirSync(agentDir, { recursive: true });
 	});
 
 	afterEach(() => {
-		if (tempDir && existsSync(tempDir)) {
-			rmSync(tempDir, { recursive: true, force: true });
-		}
+		if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 	});
 
 	async function createSession(
-		defaultTools: string[],
 		options: ToolOptions = {},
 		extensionFactories: InlineExtension[] = [],
+		settingsManager = SettingsManager.inMemory(),
 	) {
-		const settingsManager = SettingsManager.inMemory({ defaultTools });
 		const resourceLoader = new DefaultResourceLoader({
 			cwd: tempDir,
 			agentDir,
@@ -55,24 +53,22 @@ describe("defaultTools setting", () => {
 		).session;
 	}
 
-	it("uses the configured list as the initial built-in selection", async () => {
-		const session = await createSession(["grep", "find"]);
+	it("registers and activates only the native Pi-Codex tool surface", async () => {
+		const session = await createSession();
 
 		expect(
 			session
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["bash", "edit", "find", "grep", "ls", "read", "write"]);
-		expect(session.getActiveToolNames()).toEqual(["grep", "find"]);
-		expect(session.systemPrompt).toContain("- grep:");
-		expect(session.systemPrompt).not.toContain("- read:");
+		).toEqual([...DEFAULT_CODEX_TOOL_NAMES].sort());
+		expect(session.getActiveToolNames()).toEqual(DEFAULT_CODEX_TOOL_NAMES);
+		expect(session.systemPrompt).not.toContain("Available tools:");
 		session.dispose();
 	});
 
 	it("keeps extension and SDK custom tools enabled", async () => {
 		const session = await createSession(
-			["grep"],
 			{
 				customTools: [
 					{
@@ -93,58 +89,41 @@ describe("defaultTools setting", () => {
 						parameters: Type.Object({}),
 						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
 					});
-					pi.on("session_start", () => {
-						pi.registerTool({
-							name: "dynamic_tool",
-							label: "Dynamic Tool",
-							description: "Dynamically registered extension tool",
-							parameters: Type.Object({}),
-							execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
-						});
-					});
 				},
 			],
 		);
 		await session.bindExtensions({});
 
-		expect(session.getActiveToolNames().sort()).toEqual(["dynamic_tool", "grep", "sdk_tool", "static_tool"]);
-		expect(session.getAllTools().map((tool) => tool.name)).toEqual(
-			expect.arrayContaining(["read", "dynamic_tool", "sdk_tool", "static_tool"]),
+		expect(session.getActiveToolNames()).toEqual(
+			expect.arrayContaining([...DEFAULT_CODEX_TOOL_NAMES, "sdk_tool", "static_tool"]),
 		);
 		session.dispose();
 	});
 
-	it("preserves explicit tool option precedence", async () => {
-		const allowlistedSession = await createSession(["grep"], { tools: ["read"] });
-		expect(allowlistedSession.getActiveToolNames()).toEqual(["read"]);
-		allowlistedSession.dispose();
+	it("preserves explicit allowlist and suppression options", async () => {
+		const allowlisted = await createSession({ tools: ["exec_command", "apply_patch"] });
+		expect(allowlisted.getActiveToolNames()).toEqual(["exec_command", "apply_patch"]);
+		allowlisted.dispose();
 
-		const excludedSession = await createSession(["read", "grep"], { excludeTools: ["read"] });
-		expect(excludedSession.getActiveToolNames()).toEqual(["grep"]);
-		excludedSession.dispose();
+		const excluded = await createSession({ excludeTools: ["imagegen"] });
+		expect(excluded.getActiveToolNames()).toEqual(DEFAULT_CODEX_TOOL_NAMES.filter((name) => name !== "imagegen"));
+		excluded.dispose();
 
-		const toolLessSession = await createSession(["read"], { noTools: "all" });
-		expect(toolLessSession.getAllTools()).toEqual([]);
-		expect(toolLessSession.getActiveToolNames()).toEqual([]);
-		toolLessSession.dispose();
+		const toolLess = await createSession({ noTools: "all" });
+		expect(toolLess.getAllTools()).toEqual([]);
+		expect(toolLess.getActiveToolNames()).toEqual([]);
+		toolLess.dispose();
 	});
 
 	it("applies through service-based session creation", async () => {
-		const settingsManager = SettingsManager.inMemory({ defaultTools: ["ls"] });
-		const services = await createAgentSessionServices({ cwd: tempDir, agentDir, settingsManager });
+		const services = await createAgentSessionServices({ cwd: tempDir, agentDir });
 		const { session } = await createAgentSessionFromServices({
 			services,
 			sessionManager: SessionManager.inMemory(tempDir),
 			model: getModel("anthropic", "claude-sonnet-4-5")!,
 		});
 
-		expect(
-			session
-				.getAllTools()
-				.map((tool) => tool.name)
-				.sort(),
-		).toEqual(["bash", "edit", "find", "grep", "ls", "read", "write"]);
-		expect(session.getActiveToolNames()).toEqual(["ls"]);
+		expect(session.getActiveToolNames()).toEqual(DEFAULT_CODEX_TOOL_NAMES);
 		session.dispose();
 	});
 });

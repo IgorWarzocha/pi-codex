@@ -1,162 +1,136 @@
-/**
- * System prompt construction and project context loading
- */
+import { dirname } from "node:path";
+import { getDefaultCodexRuntimeShell } from "../adapter/prompt/runtime-shell.ts";
+import { getReadmePath } from "../config.ts";
+import type { Skill } from "./skills.ts";
 
-import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
-import { formatSkillsForPrompt, type Skill } from "./skills.ts";
+export type CodexPromptMode = "normal" | "code" | "notebook";
 
 export interface BuildSystemPromptOptions {
-	/** Custom system prompt (replaces default). */
+	/** Custom system prompt content. Pi-Codex runtime guidance is still appended. */
 	customPrompt?: string;
-	/** Tools to include in prompt. Default: [read, bash, edit, write] */
+	/** Active tools, retained for extension API compatibility. */
 	selectedTools?: string[];
-	/** Optional one-line tool snippets keyed by tool name. */
+	/** Tool snippets, retained for extension API compatibility. */
 	toolSnippets?: Record<string, string>;
-	/** Additional guideline bullets appended to the default system prompt guidelines. */
+	/** Additional guideline bullets. */
 	promptGuidelines?: string[];
-	/** Text to append to system prompt. */
+	/** Text to append to the system prompt. */
 	appendSystemPrompt?: string;
 	/** Working directory. */
 	cwd: string;
+	/** Current execution mode. */
+	mode?: CodexPromptMode;
+	/** Configured shell path. */
+	shell?: string;
 	/** Pre-loaded context files. */
 	contextFiles?: Array<{ path: string; content: string }>;
 	/** Pre-loaded skills. */
 	skills?: Skill[];
 }
 
-/** Build the system prompt with tools, guidelines, and context */
+const EXEC_SESSION_GUIDELINE =
+	"For unfinished exec_command sessions, use write_stdin with yield_time_ms near the command's expected remaining time and lengthen later waits";
+
+const NORMAL_CODEX_GUIDELINES = [
+	"Use exec_command for shell commands, file inspection, builds, and tests; prefer rg / rg --files for discovery and focused commands over truncation",
+	"Reserve tty=true for input or persistent processes",
+	"Use apply_patch for text-file changes, including creates/deletes/moves; split oversized patches",
+	EXEC_SESSION_GUIDELINE,
+	"Run independent tool calls in parallel when practical",
+];
+
+const CODE_MODE_GUIDELINES = [
+	"Use tools.exec_command for shell commands; prefer rg and rg --files",
+	"For tools.exec_command cmd, use String.raw only without backticks or $" +
+		"{}; avoid nested quoting; split independent commands into separate calls",
+	"Long command: keep tools.exec_command awaited inside exec; resume the yielded cell_id with wait near completion. Do not request a short child yield and poll its session_id with tools.write_stdin",
+	"Use tty=true only for input or persistent processes",
+	"Use tools.apply_patch(patch) for file edits; split large patches; reserve shell/Python for formatting or bulk rewrites",
+	"Await dependencies; use Promise.all for independent calls",
+	"Use text() only for concise final output",
+];
+
+const NOTEBOOK_MODE_GUIDELINES = [
+	"exec is a persistent Deno/TypeScript Jupyter notebook; project globals may come from earlier agents and sessions",
+	"Check notebook status and reuse matching retained globals before rebuilding; inspect description/usage before constructing reusable ones",
+	"Keep one-offs block-local; store cheap reusable state and repeatable helpers on purpose-named globalThis properties as unpinned scratch, pin only important prune-resistant state; give helpers concise description/usage with a safe inspection recipe",
+	...CODE_MODE_GUIDELINES,
+	"Use notebook status to inspect retained state or memory, release/prune disposable state, and diagnostics after broken state or helpers",
+	"Filter retained data inside exec and return only needed findings; never dump the namespace",
+	"Keep canonical project artifacts in files; tools.exec_command subprocess shell state does not persist",
+	"Keep cross-session helpers self-contained; imports, closures, and live handles may need recreation after restart",
+	"Each result reports memory; use notebook release/prune before pressure becomes critical",
+	"exec calls run sequentially; use wait only to observe or terminate the currently yielded call",
+	"Treat all npm packages as unsafe by default; Notebook startup lists prior project imports, and any unlisted package requires user approval before first use plus an exact-version npm: specifier",
+	"Use Deno APIs and approved npm: imports for persistent computation; prefer Pi/custom tools for project operations with richer contracts, rendering, bounds, or background handles",
+];
+
+function buildGuidelines(mode: CodexPromptMode, additions: string[]): string[] {
+	const base =
+		mode === "notebook" ? NOTEBOOK_MODE_GUIDELINES : mode === "code" ? CODE_MODE_GUIDELINES : NORMAL_CODEX_GUIDELINES;
+	const piPackageRoot = dirname(getReadmePath()).replace(/\\/g, "/");
+	return [
+		...new Set([
+			...base,
+			...additions.map((guideline) => guideline.trim()).filter(Boolean),
+			`When work depends on Pi APIs or runtime behavior not established in the current repository, consult the relevant README.md, docs/, or examples/ files under ${piPackageRoot} and follow their references before implementing`,
+		]),
+	];
+}
+
+function appendProjectContext(prompt: string, contextFiles: Array<{ path: string; content: string }>): string {
+	if (contextFiles.length === 0) return prompt;
+	const files = contextFiles
+		.map(({ path, content }) => `<project_instructions path="${path}">\n${content}\n</project_instructions>`)
+		.join("\n\n");
+	return `${prompt}\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n${files}\n\n</project_context>`;
+}
+
+function buildSkillsSection(skills: Skill[]): string {
+	const visible = skills.filter((skill) => !skill.disableModelInvocation);
+	if (visible.length === 0) return "";
+	const lines = [
+		"<skills_instructions>",
+		"## Skills",
+		"Skill: local instructions in `SKILL.md` file",
+		"### Available skills",
+		...visible.map((skill) => `- ${skill.name}: ${skill.description} (file: ${skill.filePath})`),
+		"### How to use skills",
+		"- Use skill when user names it (`$SkillName` or plain text) or request clearly matches its description",
+		"- Use the minimal required set of skills. If multiple apply, use them together and state the order briefly",
+		"- For each selected skill, open its `SKILL.md`, resolve relative paths from the skill directory first, load only the files you need, and prefer existing scripts/assets/templates over recreating them",
+		"### Fallback",
+		"- If skill is missing or path cannot be read, say so briefly and continue with best fallback approach",
+		"</skills_instructions>",
+	];
+	return lines.join("\n");
+}
+
+function resolveShell(configuredShell: string | undefined): string {
+	try {
+		return getDefaultCodexRuntimeShell(configuredShell);
+	} catch {
+		return configuredShell ?? process.env.SHELL ?? "/bin/bash";
+	}
+}
+
+/** Build the native Pi-Codex prompt without constructing or rewriting Pi's stock prompt. */
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-	const {
-		customPrompt,
-		selectedTools,
-		toolSnippets,
-		promptGuidelines,
-		appendSystemPrompt,
-		cwd,
-		contextFiles: providedContextFiles,
-		skills: providedSkills,
-	} = options;
-	const promptCwd = cwd.replace(/\\/g, "/");
+	const mode = options.mode ?? "normal";
+	const guidelines = buildGuidelines(mode, options.promptGuidelines ?? []);
+	const sections: string[] = [];
+	if (options.customPrompt?.trim()) sections.push(options.customPrompt.trim());
+	sections.push(`Guidelines:\n${guidelines.map((guideline) => `- ${guideline}`).join("\n")}`);
+	if (options.appendSystemPrompt?.trim()) sections.push(options.appendSystemPrompt.trim());
 
-	const appendSection = appendSystemPrompt ? `\n\n${appendSystemPrompt}` : "";
-
-	const contextFiles = providedContextFiles ?? [];
-	const skills = providedSkills ?? [];
-
-	if (customPrompt) {
-		let prompt = customPrompt;
-
-		if (appendSection) {
-			prompt += appendSection;
-		}
-
-		// Append project context files
-		if (contextFiles.length > 0) {
-			prompt += "\n\n<project_context>\n\n";
-			prompt += "Project-specific instructions and guidelines:\n\n";
-			for (const { path: filePath, content } of contextFiles) {
-				prompt += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
-			}
-			prompt += "</project_context>\n";
-		}
-
-		// Append skills section (only if read tool is available)
-		const customPromptHasRead = !selectedTools || selectedTools.includes("read");
-		if (customPromptHasRead && skills.length > 0) {
-			prompt += formatSkillsForPrompt(skills);
-		}
-
-		prompt += `\nCurrent working directory: ${promptCwd}\n`;
-
-		return prompt;
-	}
-
-	// Get absolute paths to documentation and examples
-	const readmePath = getReadmePath();
-	const docsPath = getDocsPath();
-	const examplesPath = getExamplesPath();
-
-	// Build tools list based on selected tools.
-	// A tool appears in Available tools only when the caller provides a one-line snippet.
-	const tools = selectedTools || ["read", "bash", "edit", "write"];
-	const visibleTools = tools.filter((name) => !!toolSnippets?.[name]);
-	const toolsList =
-		visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets![name]}`).join("\n") : "(none)";
-
-	// Build guidelines based on which tools are actually available
-	const guidelinesList: string[] = [];
-	const guidelinesSet = new Set<string>();
-	const addGuideline = (guideline: string): void => {
-		if (guidelinesSet.has(guideline)) {
-			return;
-		}
-		guidelinesSet.add(guideline);
-		guidelinesList.push(guideline);
-	};
-
-	const hasBash = tools.includes("bash");
-	const hasGrep = tools.includes("grep");
-	const hasFind = tools.includes("find");
-	const hasLs = tools.includes("ls");
-	const hasRead = tools.includes("read");
-
-	// File exploration guidelines
-	if (hasBash && !hasGrep && !hasFind && !hasLs) {
-		addGuideline("Use bash for file operations like ls, rg, find");
-	}
-
-	for (const guideline of promptGuidelines ?? []) {
-		const normalized = guideline.trim();
-		if (normalized.length > 0) {
-			addGuideline(normalized);
-		}
-	}
-
-	// Always include these
-	addGuideline("Be concise in your responses");
-	addGuideline("Show file paths clearly when working with files");
-
-	const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
-
-	let prompt = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
-
-Available tools:
-${toolsList}
-
-In addition to the tools above, you may have access to other custom tools depending on the project.
-
-Guidelines:
-${guidelines}
-
-Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
-- Main documentation: ${readmePath}
-- Additional docs: ${docsPath}
-- Examples: ${examplesPath} (extensions, custom tools, SDK)
-- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
-- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`;
-
-	if (appendSection) {
-		prompt += appendSection;
-	}
-
-	// Append project context files
-	if (contextFiles.length > 0) {
-		prompt += "\n\n<project_context>\n\n";
-		prompt += "Project-specific instructions and guidelines:\n\n";
-		for (const { path: filePath, content } of contextFiles) {
-			prompt += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
-		}
-		prompt += "</project_context>\n";
-	}
-
-	// Append skills section (only if read tool is available)
-	if (hasRead && skills.length > 0) {
-		prompt += formatSkillsForPrompt(skills);
-	}
-
-	prompt += `\nCurrent working directory: ${promptCwd}`;
-
-	return prompt;
+	let prompt = sections.join("\n\n");
+	prompt = appendProjectContext(prompt, options.contextFiles ?? []);
+	const skills = buildSkillsSection(options.skills ?? []);
+	if (skills) prompt += `\n\n${skills}`;
+	const shell = resolveShell(options.shell);
+	const shellName = shell.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+	const zshGuidance = shellName === "zsh" || shellName === "zsh.exe" ? "; status is read-only, capture $? as rc" : "";
+	prompt += `\n\nCurrent shell: ${shell}; follow its syntax, quoting, and variable rules${zshGuidance}`;
+	prompt += `\n\nCurrent working directory: ${options.cwd.replace(/\\/g, "/")}`;
+	return prompt.trim();
 }

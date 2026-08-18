@@ -66,19 +66,17 @@ describe("regression #2835: tool allowlists filter extension tools", () => {
 	}
 
 	it("allows only explicitly listed built-in and extension tools", async () => {
-		const session = await createSession(["read", "dynamic_tool"]);
+		const session = await createSession(["exec_command", "dynamic_tool"]);
 
 		expect(
 			session
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["dynamic_tool", "read"]);
-		expect(session.getActiveToolNames().sort()).toEqual(["dynamic_tool", "read"]);
-		expect(session.systemPrompt).toContain("- read: Read file contents");
-		expect(session.systemPrompt).toContain("- dynamic_tool: Run dynamic test behavior");
-		expect(session.systemPrompt).not.toContain("- bash:");
-		expect(session.systemPrompt).not.toContain("- edit:");
+		).toEqual(["dynamic_tool", "exec_command"]);
+		expect(session.getActiveToolNames().sort()).toEqual(["dynamic_tool", "exec_command"]);
+		expect(session.systemPrompt).not.toContain("Available tools:");
+		expect(session.systemPrompt).not.toContain("Run dynamic test behavior");
 		session.dispose();
 	});
 
@@ -87,7 +85,7 @@ describe("regression #2835: tool allowlists filter extension tools", () => {
 
 		expect(session.getAllTools()).toEqual([]);
 		expect(session.getActiveToolNames()).toEqual([]);
-		expect(session.systemPrompt).toContain("Available tools:\n(none)");
+		expect(session.systemPrompt).not.toContain("Available tools:");
 		expect(session.systemPrompt).not.toContain("dynamic_tool");
 		session.dispose();
 	});

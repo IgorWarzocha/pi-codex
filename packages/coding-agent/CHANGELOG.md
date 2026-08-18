@@ -2,9 +2,17 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Replaced the stock `read`, `bash`, `edit`, `write`, `grep`, `find`, and `ls` runtime with the native Pi-Codex `exec_command`, `write_stdin`, `apply_patch`, `view_image`, `web_run`, and `imagegen` tool surface. The obsolete `defaultTools` setting is no longer used.
+
 ### Added
 
 - Added transcript usage notices for compaction and branch summaries when cache miss notices are enabled.
+
+### Changed
+
+- Pi-Codex now builds its compact system prompt directly from runtime guidance, project instructions, skills, shell context, and the working directory instead of constructing and rewriting Pi's stock prompt before each turn.
 
 ### Fixed
 
