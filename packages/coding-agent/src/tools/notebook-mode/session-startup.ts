@@ -11,6 +11,7 @@ import {
 import { notebookExecStartupNotice } from "./control-contract.ts";
 import { ensureNotebookDenoBinary } from "./deno-binary.ts";
 import { initializeNotebookJournal, type NotebookJournal } from "./journal.ts";
+import { isJupyterPortConflict } from "./jupyter-connection.ts";
 import { DenoJupyterKernel } from "./jupyter-kernel.ts";
 import { notebookBootstrapSource, notebookExampleSource } from "./kernel-runtime.ts";
 import { formatNotebookNpmImportsNotice, readNotebookNpmImports } from "./npm-imports.ts";
@@ -53,9 +54,14 @@ export async function startNotebookSession(options: {
 		throw error;
 	}
 
-	const kernel = new DenoJupyterKernel({ deno, maxHeapMiB: runtime.maxHeapMiB, onFailure: options.onKernelFailure });
+	let kernel: DenoJupyterKernel | undefined;
 	try {
-		await kernel.start(signal);
+		kernel = await startNotebookKernel({
+			deno,
+			maxHeapMiB: runtime.maxHeapMiB,
+			onFailure: options.onKernelFailure,
+			signal,
+		});
 		const bootstrap = await kernel.execute(
 			notebookBootstrapSource(origin, bridge.token, bridge.exitToken, context.cwd),
 			{ signal },
@@ -135,10 +141,30 @@ export async function startNotebookSession(options: {
 			...(restoreNotice ? { restoreNotice } : {}),
 		};
 	} catch (error) {
-		await kernel.shutdown().catch(() => undefined);
+		await kernel?.shutdown().catch(() => undefined);
 		await bridge.shutdown().catch(() => undefined);
 		throw error;
 	}
+}
+
+async function startNotebookKernel(options: {
+	deno: string;
+	maxHeapMiB: number;
+	onFailure?: ((kernel: DenoJupyterKernel, error: Error) => void) | undefined;
+	signal?: AbortSignal | undefined;
+}): Promise<DenoJupyterKernel> {
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		const kernel = new DenoJupyterKernel(options);
+		try {
+			await kernel.start(options.signal);
+			return kernel;
+		} catch (error) {
+			await kernel.shutdown().catch(() => undefined);
+			options.signal?.throwIfAborted();
+			if (attempt > 0 || !isJupyterPortConflict(error)) throw error;
+		}
+	}
+	throw new Error("Notebook kernel startup retry exhausted");
 }
 
 async function installNotebookExamples(kernel: DenoJupyterKernel, signal?: AbortSignal): Promise<string[]> {

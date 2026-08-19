@@ -45,6 +45,11 @@ export function jupyterEndpoint(connection: JupyterConnectionInfo, port: number)
 	return `${connection.transport}://${connection.ip}:${port}`;
 }
 
+export function isJupyterPortConflict(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /EADDRINUSE|address (?:is )?already in use|only one usage of each socket address/i.test(message);
+}
+
 async function reserveLoopbackPorts(count: number): Promise<number[]> {
 	const servers: Server[] = [];
 	try {

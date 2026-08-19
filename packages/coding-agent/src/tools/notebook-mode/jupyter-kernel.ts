@@ -461,7 +461,7 @@ export class DenoJupyterKernel {
 		this.shell = undefined;
 		for (const waiter of this.shellReplies.values()) {
 			if (waiter.timer) clearTimeout(waiter.timer);
-			waiter.reject(new Error("Deno Jupyter shell disconnected"));
+			waiter.reject(this.terminalFailure ?? new Error("Deno Jupyter shell disconnected"));
 		}
 		this.shellReplies.clear();
 		shell?.close();
