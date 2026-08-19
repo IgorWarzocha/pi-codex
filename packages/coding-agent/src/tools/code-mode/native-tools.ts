@@ -1,4 +1,5 @@
 import type { AgentToolResult, ExtensionContext } from "../../core/extensions/types.ts";
+import type { Skill } from "../../core/skills.ts";
 import { createApplyPatchTool } from "../apply-patch/tool.ts";
 import type { ExecCommandTracker } from "../exec/command-state.ts";
 import { createExecCommandTool } from "../exec/command-tool.ts";
@@ -8,6 +9,7 @@ import { createImageGenerationTool } from "../imagegen/tool.ts";
 import { createViewImageTool } from "../view-image/tool.ts";
 import { createWebSearchTool } from "../web-run/tool.ts";
 import { codeModeImageResult, codeModeWebResult, toNestedTool } from "./nested-tool-adapter.ts";
+import { createSkillsCodeModeTool } from "./skills-tool.ts";
 import { formatRunningExecSessionGuidance } from "./tool-result.ts";
 import type { ProgrammaticCodeModeToolDefinition } from "./types.ts";
 
@@ -21,6 +23,8 @@ export function createNativeCodeModeTools(
 		customRustBinariesDir?: string | undefined;
 		describeImagesForTextModels?: boolean | undefined;
 		webSearchModel?: string | undefined;
+		getSkills?(): Skill[];
+		refreshSkills?(): Promise<void>;
 	} = {},
 ): ProgrammaticCodeModeToolDefinition[] {
 	const options = {
@@ -29,6 +33,14 @@ export function createNativeCodeModeTools(
 		showOutputWhenCollapsed: true,
 	};
 	return [
+		...(runtimeOptions.getSkills && runtimeOptions.refreshSkills
+			? [
+					createSkillsCodeModeTool({
+						getSkills: runtimeOptions.getSkills,
+						refreshSkills: runtimeOptions.refreshSkills,
+					}),
+				]
+			: []),
 		toNestedTool(
 			createApplyPatchTool({
 				customRustBinariesDir: runtimeOptions.customRustBinariesDir,

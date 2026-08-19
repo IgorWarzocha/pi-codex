@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DeveloperMessage } from "@earendil-works/pi-ai";
-import { getModel } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
@@ -213,6 +213,46 @@ describe("AgentSession dynamic tool registration", () => {
 		expect(session.systemPrompt).toContain("- Use initial_tool for initial behavior tests.");
 		expect(session.messages.some((message) => message.role === "developer")).toBe(false);
 
+		session.dispose();
+	});
+
+	it("announces newly added eager skills as non-triggering developer context", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+		await resourceLoader.reload();
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager: SessionManager.inMemory(),
+			resourceLoader,
+		});
+		const skillDir = join(agentDir, "skills", "late-skill");
+		mkdirSync(skillDir, { recursive: true });
+		writeFileSync(
+			join(skillDir, "SKILL.md"),
+			"---\nname: late-skill\ndescription: Added after startup\n---\nLate skill body",
+		);
+
+		const assistant = fauxAssistantMessage("done");
+		await session.agent.prepareNextTurnWithContext?.({
+			message: assistant,
+			toolResults: [],
+			context: {
+				systemPrompt: session.systemPrompt,
+				messages: session.messages.slice(),
+				tools: session.agent.state.tools.slice(),
+			},
+			newMessages: [assistant],
+		});
+
+		const update = session.messages.find(
+			(message) => message.role === "developer" && JSON.stringify(message.content).includes("late-skill"),
+		);
+		expect(update?.role).toBe("developer");
+		expect(session.systemPrompt).not.toContain("late-skill");
+		expect(session.messages.some((message) => message.role === "assistant")).toBe(false);
 		session.dispose();
 	});
 

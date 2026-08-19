@@ -40,11 +40,11 @@ describe("DefaultResourceLoader", () => {
 			expect(loader.getThemes().themes).toEqual([]);
 		});
 
-		it("should discover skills from agentDir", async () => {
-			const skillsDir = join(agentDir, "skills");
-			mkdirSync(skillsDir, { recursive: true });
+		it("should discover only canonical skills from agentDir", async () => {
+			const skillDir = join(agentDir, "skills", "test-skill");
+			mkdirSync(skillDir, { recursive: true });
 			writeFileSync(
-				join(skillsDir, "test-skill.md"),
+				join(skillDir, "SKILL.md"),
 				`---
 name: test-skill
 description: A test skill
@@ -57,6 +57,34 @@ Skill content here.`,
 
 			const { skills } = loader.getSkills();
 			expect(skills.some((s) => s.name === "test-skill")).toBe(true);
+		});
+
+		it("should ignore loose markdown files in skill roots", async () => {
+			const skillsDir = join(agentDir, "skills");
+			mkdirSync(skillsDir, { recursive: true });
+			writeFileSync(join(skillsDir, "not-a-skill.md"), "---\nname: nope\ndescription: Nope\n---\nNope");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getSkills().skills).toEqual([]);
+		});
+
+		it("should classify second-level skills and discover additions on refresh", async () => {
+			const eagerDir = join(agentDir, "skills", "deploy");
+			mkdirSync(eagerDir, { recursive: true });
+			writeFileSync(join(eagerDir, "SKILL.md"), "---\nname: deploy\ndescription: Deploy\n---\nDeploy");
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getSkills().skills.find((skill) => skill.name === "deploy")?.category).toBeUndefined();
+
+			const lazyDir = join(agentDir, "skills", "swe", "hardening");
+			mkdirSync(lazyDir, { recursive: true });
+			writeFileSync(join(lazyDir, "SKILL.md"), "---\nname: hardening\ndescription: Harden code\n---\nHarden");
+			await loader.refreshSkills();
+
+			expect(loader.getSkills().skills.find((skill) => skill.name === "hardening")?.category).toBe("swe");
 		});
 
 		it("should ignore extra markdown files in auto-discovered skill dirs", async () => {
@@ -98,7 +126,7 @@ Prompt content.`,
 			expect(prompts.some((p) => p.name === "test-prompt")).toBe(true);
 		});
 
-		it("should prefer project resources over user on name collisions", async () => {
+		it("should prefer project prompts and themes while disabling duplicate skill names", async () => {
 			const userPromptsDir = join(agentDir, "prompts");
 			const projectPromptsDir = join(cwd, ".pi", "prompts");
 			mkdirSync(userPromptsDir, { recursive: true });
@@ -151,8 +179,10 @@ Project skill`,
 			const prompt = loader.getPrompts().prompts.find((p) => p.name === "commit");
 			expect(prompt?.filePath).toBe(projectPromptPath);
 
-			const skill = loader.getSkills().skills.find((s) => s.name === "collision-skill");
-			expect(skill?.filePath).toBe(projectSkillPath);
+			const skillsResult = loader.getSkills();
+			expect(skillsResult.skills.some((s) => s.name === "collision-skill")).toBe(false);
+			expect(skillsResult.diagnostics.filter((diagnostic) => diagnostic.path === userSkillPath)).toHaveLength(1);
+			expect(skillsResult.diagnostics.filter((diagnostic) => diagnostic.path === projectSkillPath)).toHaveLength(1);
 
 			const theme = loader.getThemes().themes.find((t) => t.name === "collision-theme");
 			expect(theme?.sourcePath).toBe(projectThemePath);
@@ -781,10 +811,10 @@ Content`,
 		});
 
 		it("should still load additional skill paths when noSkills is true", async () => {
-			const customSkillDir = join(tempDir, "custom-skills");
+			const customSkillDir = join(tempDir, "custom-skills", "custom");
 			mkdirSync(customSkillDir, { recursive: true });
 			writeFileSync(
-				join(customSkillDir, "custom.md"),
+				join(customSkillDir, "SKILL.md"),
 				`---
 name: custom
 description: Custom skill

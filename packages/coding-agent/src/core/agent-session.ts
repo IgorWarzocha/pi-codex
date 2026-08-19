@@ -105,6 +105,7 @@ import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.t
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
+import type { Skill } from "./skills.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
@@ -387,6 +388,9 @@ export class AgentSession {
 	private _toolPromptGuidelines: Map<string, string[]> = new Map();
 	private _toolAvailabilityAnnouncementsEnabled = false;
 	private readonly _pendingToolAvailabilityNames = new Set<string>();
+	private readonly _pendingSkillAvailability = new Map<string, Skill>();
+	private _knownEagerSkillPaths: Set<string>;
+	private _skillRefreshPromise: Promise<void> | undefined;
 	private readonly _pendingPromotedCustomTools: Array<{
 		name: string;
 		usage: string;
@@ -405,6 +409,12 @@ export class AgentSession {
 		this.settingsManager = config.settingsManager;
 		this._scopedModels = config.scopedModels ?? [];
 		this._resourceLoader = config.resourceLoader;
+		this._knownEagerSkillPaths = new Set(
+			config.resourceLoader
+				.getSkills()
+				.skills.filter((skill) => skill.category === undefined)
+				.map((skill) => resolvePath(skill.filePath)),
+		);
 		this._customTools = config.customTools ?? [];
 		this._cwd = config.cwd;
 		this._nestedContextManager = new NestedContextManager({
@@ -425,6 +435,8 @@ export class AgentSession {
 					webSearchModel: settings.openai?.webSearchModel,
 				};
 			},
+			getSkills: () => this._resourceLoader.getSkills().skills,
+			refreshSkills: () => this._refreshSkills(),
 			onPromotedCustomToolsAdded: (tools) => this._announcePromotedCustomTools(tools),
 		});
 		this._codexExecutionMode = this._codexToolRuntime.resolveExecutionMode(
@@ -588,6 +600,7 @@ export class AgentSession {
 		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
 			const previousContext = previousSnapshot?.context ?? turn.context;
+			await this._refreshSkills();
 			this._flushPendingToolAvailability(previousContext.messages, turn.newMessages);
 
 			return {
@@ -1050,14 +1063,38 @@ export class AgentSession {
 		if (!this.isStreaming) this._flushPendingToolAvailability();
 	}
 
+	private async _refreshSkills(): Promise<void> {
+		if (this._skillRefreshPromise) return this._skillRefreshPromise;
+		const pending = (async () => {
+			await this._resourceLoader.refreshSkills?.();
+			const eagerSkills = this._resourceLoader.getSkills().skills.filter((skill) => skill.category === undefined);
+			const currentPaths = new Set(eagerSkills.map((skill) => resolvePath(skill.filePath)));
+			for (const skill of eagerSkills) {
+				const path = resolvePath(skill.filePath);
+				if (!this._knownEagerSkillPaths.has(path)) this._pendingSkillAvailability.set(path, skill);
+			}
+			this._knownEagerSkillPaths = currentPaths;
+			if (!this.isStreaming) this._flushPendingToolAvailability();
+		})();
+		this._skillRefreshPromise = pending;
+		try {
+			await pending;
+		} finally {
+			if (this._skillRefreshPromise === pending) this._skillRefreshPromise = undefined;
+		}
+	}
+
 	private _flushPendingToolAvailability(contextMessages?: AgentMessage[], runMessages?: AgentMessage[]): void {
 		const activeNames = new Set(this.getActiveToolNames());
 		const toolNames = [...this._pendingToolAvailabilityNames].filter((name) => activeNames.has(name));
 		this._pendingToolAvailabilityNames.clear();
 		const promotedCustomTools = this._pendingPromotedCustomTools.splice(0);
+		const addedSkills = [...this._pendingSkillAvailability.values()];
+		this._pendingSkillAvailability.clear();
 		const messages = [
 			...(toolNames.length > 0 ? [this._createToolAvailabilityMessage(toolNames)] : []),
 			...(promotedCustomTools.length > 0 ? [this._createPromotedCustomToolsMessage(promotedCustomTools)] : []),
+			...(addedSkills.length > 0 ? [this._createSkillAvailabilityMessage(addedSkills)] : []),
 		];
 		for (const message of messages) {
 			this.agent.state.messages.push(message);
@@ -1107,6 +1144,25 @@ export class AgentSession {
 			if (tool.output) lines.push(`  Output: ${tool.output}`);
 		}
 		lines.push("</tool_availability>");
+		return {
+			role: "developer",
+			content: [{ type: "text", text: lines.join("\n") }],
+			timestamp: Date.now(),
+		};
+	}
+
+	private _createSkillAvailabilityMessage(skills: Skill[]): DeveloperMessage {
+		const lines = [
+			"<skill_availability>",
+			"The following important skills are now available in this session. This is a context update, not a user request.",
+			...skills
+				.sort((left, right) => left.name.localeCompare(right.name))
+				.map(
+					(skill) => `- ${skill.name}: ${skill.description.replace(/\s+/g, " ").trim()} (file: ${skill.filePath})`,
+				),
+			"In Code or Notebook Mode, read them through the skills tool. Otherwise read the listed SKILL.md file.",
+			"</skill_availability>",
+		];
 		return {
 			role: "developer",
 			content: [{ type: "text", text: lines.join("\n") }],
@@ -1352,6 +1408,8 @@ export class AgentSession {
 				}
 			}
 
+			await this._refreshSkills();
+
 			// Expand skill commands (/skill:name args) and prompt templates (/template args)
 			let expandedText = currentText;
 			if (expandPromptTemplates) {
@@ -1544,6 +1602,7 @@ export class AgentSession {
 		}
 
 		// Expand skill commands and prompt templates
+		if (text.startsWith("/skill:")) await this._refreshSkills();
 		let expandedText = this._expandSkillCommand(text);
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
@@ -1564,6 +1623,7 @@ export class AgentSession {
 		}
 
 		// Expand skill commands and prompt templates
+		if (text.startsWith("/skill:")) await this._refreshSkills();
 		let expandedText = this._expandSkillCommand(text);
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
@@ -2987,6 +3047,13 @@ export class AgentSession {
 		await this.settingsManager.reload();
 		this.syncQueueModesFromSettings();
 		await this._resourceLoader.reload();
+		this._knownEagerSkillPaths = new Set(
+			this._resourceLoader
+				.getSkills()
+				.skills.filter((skill) => skill.category === undefined)
+				.map((skill) => resolvePath(skill.filePath)),
+		);
+		this._pendingSkillAvailability.clear();
 		this._resetNestedContext();
 		this._buildRuntime({
 			activeToolNames: this.getActiveToolNames(),

@@ -40,6 +40,8 @@ export interface ResourceLoaderReloadOptions {
 export interface ResourceLoader {
 	getExtensions(): LoadExtensionsResult;
 	getSkills(): { skills: Skill[]; diagnostics: ResourceDiagnostic[] };
+	/** Rescan skill sources without reloading extensions or other resources. */
+	refreshSkills?(): Promise<{ skills: Skill[]; diagnostics: ResourceDiagnostic[] }>;
 	getPrompts(): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] };
 	getThemes(): { themes: Theme[]; diagnostics: ResourceDiagnostic[] };
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
@@ -288,6 +290,29 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	getSkills(): { skills: Skill[]; diagnostics: ResourceDiagnostic[] } {
 		return { skills: this.skills, diagnostics: this.skillDiagnostics };
+	}
+
+	async refreshSkills(): Promise<{ skills: Skill[]; diagnostics: ResourceDiagnostic[] }> {
+		const resolvedPaths = await this.packageManager.resolve();
+		const cliPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
+			temporary: true,
+		});
+		const metadataByPath = this.resourceMetadataByPath;
+		const collectEnabled = (resources: ResolvedResource[]): string[] => {
+			const paths: string[] = [];
+			for (const resource of resources) {
+				if (!metadataByPath.has(resource.path)) metadataByPath.set(resource.path, resource.metadata);
+				if (resource.enabled) paths.push(this.mapSkillPath(resource, metadataByPath));
+			}
+			return paths;
+		};
+		const configured = this.noSkills ? [] : collectEnabled(resolvedPaths.skills);
+		const temporary = collectEnabled(cliPaths.skills);
+		const extensionPaths = [...this.extensionSkillSourceInfos.keys()];
+		const skillPaths = this.mergePaths([...temporary, ...configured, ...this.additionalSkillPaths], extensionPaths);
+		this.lastSkillPaths = skillPaths;
+		this.updateSkillsFromPaths(skillPaths, metadataByPath);
+		return this.getSkills();
 	}
 
 	getPrompts(): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] } {

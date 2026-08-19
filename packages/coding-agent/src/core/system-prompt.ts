@@ -88,8 +88,8 @@ function appendProjectContext(prompt: string, contextFiles: Array<{ path: string
 	return `${prompt}\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n${files}\n\n</project_context>`;
 }
 
-function buildSkillsSection(skills: Skill[]): string {
-	const visible = skills.filter((skill) => !skill.disableModelInvocation);
+function buildSkillsSection(skills: Skill[], mode: CodexPromptMode): string {
+	const visible = skills.filter((skill) => !skill.disableModelInvocation && skill.category === undefined);
 	if (visible.length === 0) return "";
 	const lines = [
 		"<skills_instructions>",
@@ -100,7 +100,9 @@ function buildSkillsSection(skills: Skill[]): string {
 		"### How to use skills",
 		"- Use skill when user names it (`$SkillName` or plain text) or request clearly matches its description",
 		"- Use the minimal required set of skills. If multiple apply, use them together and state the order briefly",
-		"- For each selected skill, open its `SKILL.md`, resolve relative paths from the skill directory first, load only the files you need, and prefer existing scripts/assets/templates over recreating them",
+		mode === "normal"
+			? "- For each selected skill, open its `SKILL.md`, resolve relative paths from the skill directory first, load only the files you need, and prefer existing scripts/assets/templates over recreating them"
+			: '- For each selected skill, use `tools.skills("read <exact-skill-name>")`; it returns the body and safe absolute package paths',
 		"### Fallback",
 		"- If skill is missing or path cannot be read, say so briefly and continue with best fallback approach",
 		"</skills_instructions>",
@@ -127,7 +129,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	let prompt = sections.join("\n\n");
 	prompt = appendProjectContext(prompt, options.contextFiles ?? []);
-	const skills = buildSkillsSection(options.skills ?? []);
+	const skills = buildSkillsSection(options.skills ?? [], mode);
 	if (skills) prompt += `\n\n${skills}`;
 	if (options.codeModeToolsPrompt?.trim()) prompt += `\n\n${options.codeModeToolsPrompt.trim()}`;
 	const shell = resolveShell(options.shell);

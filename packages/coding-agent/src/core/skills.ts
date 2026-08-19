@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import ignore from "ignore";
+import { homedir } from "os";
 import { basename, dirname, join, relative, resolve, sep } from "path";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { parseFrontmatter } from "../utils/frontmatter.ts";
@@ -76,6 +77,8 @@ export interface Skill {
 	description: string;
 	filePath: string;
 	baseDir: string;
+	/** Undefined for eager skills; otherwise the lazy category below the skills root. */
+	category?: string;
 	sourceInfo: SourceInfo;
 	disableModelInvocation: boolean;
 }
@@ -133,6 +136,41 @@ export interface LoadSkillsFromDirOptions {
 	source: string;
 }
 
+function isDirectoryEntry(path: string, entry: { isDirectory(): boolean; isSymbolicLink(): boolean }): boolean {
+	if (entry.isDirectory()) return true;
+	if (!entry.isSymbolicLink()) return false;
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+function visibleDirectories(dir: string, ig: IgnoreMatcher, root: string): string[] {
+	try {
+		return readdirSync(dir, { withFileTypes: true })
+			.filter((entry) => !entry.name.startsWith(".") && entry.name !== "node_modules")
+			.map((entry) => ({ entry, path: join(dir, entry.name) }))
+			.filter(({ entry, path }) => isDirectoryEntry(path, entry))
+			.filter(({ path }) => !ig.ignores(`${toPosixPath(relative(root, path))}/`))
+			.map(({ path }) => path)
+			.sort();
+	} catch {
+		return [];
+	}
+}
+
+function canonicalSkillFile(dir: string, ig: IgnoreMatcher, root: string): string | undefined {
+	const filePath = join(dir, "SKILL.md");
+	if (!existsSync(filePath)) return undefined;
+	try {
+		if (!statSync(filePath).isFile() || ig.ignores(toPosixPath(relative(root, filePath)))) return undefined;
+		return filePath;
+	} catch {
+		return undefined;
+	}
+}
+
 function createSkillSourceInfo(filePath: string, baseDir: string, source: string): SourceInfo {
 	switch (source) {
 		case "user":
@@ -161,22 +199,17 @@ function createSkillSourceInfo(filePath: string, baseDir: string, source: string
  * Load skills from a directory.
  *
  * Discovery rules:
- * - if a directory contains SKILL.md, treat it as a skill root and do not recurse further
- * - otherwise, load direct .md children in the root
- * - recurse into subdirectories to find SKILL.md
+ * - `<root>/<skill>/SKILL.md` is eager
+ * - `<root>/<category>/<skill>/SKILL.md` is lazy and categorized
+ * - an explicit directory containing `SKILL.md` is one eager skill
+ * - no other Markdown file or deeper `SKILL.md` is a skill
  */
 export function loadSkillsFromDir(options: LoadSkillsFromDirOptions): LoadSkillsResult {
 	const { dir, source } = options;
-	return loadSkillsFromDirInternal(dir, source, true);
+	return loadSkillsFromDirInternal(dir, source);
 }
 
-function loadSkillsFromDirInternal(
-	dir: string,
-	source: string,
-	includeRootFiles: boolean,
-	ignoreMatcher?: IgnoreMatcher,
-	rootDir?: string,
-): LoadSkillsResult {
+function loadSkillsFromDirInternal(dir: string, source: string): LoadSkillsResult {
 	const skills: Skill[] = [];
 	const diagnostics: ResourceDiagnostic[] = [];
 
@@ -184,92 +217,44 @@ function loadSkillsFromDirInternal(
 		return { skills, diagnostics };
 	}
 
-	const root = rootDir ?? dir;
-	const ig = ignoreMatcher ?? ignore();
-	addIgnoreRules(ig, dir, root);
+	const root = resolve(dir);
+	const ig = ignore();
+	addIgnoreRules(ig, root, root);
+	const rootSkill = canonicalSkillFile(root, ig, root);
+	if (rootSkill) {
+		const result = loadSkillFromFile(rootSkill, source);
+		if (result.skill) skills.push(result.skill);
+		diagnostics.push(...result.diagnostics);
+		return { skills, diagnostics };
+	}
 
-	try {
-		const entries = readdirSync(dir, { withFileTypes: true });
-
-		for (const entry of entries) {
-			if (entry.name !== "SKILL.md") {
-				continue;
-			}
-
-			const fullPath = join(dir, entry.name);
-
-			let isFile = entry.isFile();
-			if (entry.isSymbolicLink()) {
-				try {
-					isFile = statSync(fullPath).isFile();
-				} catch {
-					continue;
-				}
-			}
-
-			const relPath = toPosixPath(relative(root, fullPath));
-			if (!isFile || ig.ignores(relPath)) {
-				continue;
-			}
-
-			const result = loadSkillFromFile(fullPath, source);
-			if (result.skill) {
-				skills.push(result.skill);
-			}
+	for (const firstLevelDir of visibleDirectories(root, ig, root)) {
+		addIgnoreRules(ig, firstLevelDir, root);
+		const eagerFile = canonicalSkillFile(firstLevelDir, ig, root);
+		if (eagerFile) {
+			const result = loadSkillFromFile(eagerFile, source);
+			if (result.skill) skills.push(result.skill);
 			diagnostics.push(...result.diagnostics);
-			return { skills, diagnostics };
+			continue;
 		}
 
-		for (const entry of entries) {
-			if (entry.name.startsWith(".")) {
-				continue;
+		const category = basename(firstLevelDir);
+		const categoryErrors = validateName(category);
+		if (categoryErrors.length > 0) {
+			for (const error of categoryErrors) {
+				diagnostics.push({ type: "warning", message: `invalid skill category: ${error}`, path: firstLevelDir });
 			}
-
-			// Skip node_modules to avoid scanning dependencies
-			if (entry.name === "node_modules") {
-				continue;
-			}
-
-			const fullPath = join(dir, entry.name);
-
-			// For symlinks, check if they point to a directory and follow them
-			let isDirectory = entry.isDirectory();
-			let isFile = entry.isFile();
-			if (entry.isSymbolicLink()) {
-				try {
-					const stats = statSync(fullPath);
-					isDirectory = stats.isDirectory();
-					isFile = stats.isFile();
-				} catch {
-					// Broken symlink, skip it
-					continue;
-				}
-			}
-
-			const relPath = toPosixPath(relative(root, fullPath));
-			const ignorePath = isDirectory ? `${relPath}/` : relPath;
-			if (ig.ignores(ignorePath)) {
-				continue;
-			}
-
-			if (isDirectory) {
-				const subResult = loadSkillsFromDirInternal(fullPath, source, false, ig, root);
-				skills.push(...subResult.skills);
-				diagnostics.push(...subResult.diagnostics);
-				continue;
-			}
-
-			if (!isFile || !includeRootFiles || !entry.name.endsWith(".md")) {
-				continue;
-			}
-
-			const result = loadSkillFromFile(fullPath, source);
-			if (result.skill) {
-				skills.push(result.skill);
-			}
+			continue;
+		}
+		for (const skillDir of visibleDirectories(firstLevelDir, ig, root)) {
+			addIgnoreRules(ig, skillDir, root);
+			const lazyFile = canonicalSkillFile(skillDir, ig, root);
+			if (!lazyFile) continue;
+			const result = loadSkillFromFile(lazyFile, source, category);
+			if (result.skill) skills.push(result.skill);
 			diagnostics.push(...result.diagnostics);
 		}
-	} catch {}
+	}
 
 	return { skills, diagnostics };
 }
@@ -277,9 +262,22 @@ function loadSkillsFromDirInternal(
 function loadSkillFromFile(
 	filePath: string,
 	source: string,
+	category?: string,
 ): { skill: Skill | null; diagnostics: ResourceDiagnostic[] } {
 	const diagnostics: ResourceDiagnostic[] = [];
-	const isDeclaredSkill = basename(filePath) === "SKILL.md";
+	if (basename(filePath) !== "SKILL.md") {
+		return {
+			skill: null,
+			diagnostics: [{ type: "warning", message: "skill path is not a canonical SKILL.md file", path: filePath }],
+		};
+	}
+	if (category) {
+		const categoryErrors = validateName(category);
+		for (const error of categoryErrors) {
+			diagnostics.push({ type: "warning", message: `invalid skill category: ${error}`, path: dirname(filePath) });
+		}
+		if (categoryErrors.length > 0) return { skill: null, diagnostics };
+	}
 
 	let rawContent: string;
 	try {
@@ -294,19 +292,13 @@ function loadSkillFromFile(
 	try {
 		({ frontmatter } = parseFrontmatter<SkillFrontmatter>(rawContent));
 	} catch (error) {
-		if (isDeclaredSkill) {
-			const message = error instanceof Error ? error.message : "failed to parse skill file";
-			diagnostics.push({ type: "warning", message, path: filePath });
-		}
+		const message = error instanceof Error ? error.message : "failed to parse skill file";
+		diagnostics.push({ type: "warning", message, path: filePath });
 		return { skill: null, diagnostics };
 	}
 
 	const description = frontmatter.description;
 	const hasDescription = typeof description === "string" && description.trim() !== "";
-	if (!isDeclaredSkill && !hasDescription) {
-		return { skill: null, diagnostics };
-	}
-
 	const skillDir = dirname(filePath);
 	const parentDirName = basename(skillDir);
 
@@ -337,6 +329,7 @@ function loadSkillFromFile(
 			description,
 			filePath,
 			baseDir: skillDir,
+			...(category ? { category } : {}),
 			sourceInfo: createSkillSourceInfo(filePath, skillDir, source),
 			disableModelInvocation: frontmatter["disable-model-invocation"] === true,
 		},
@@ -353,7 +346,7 @@ function loadSkillFromFile(
  * (they can only be invoked explicitly via /skill:name commands).
  */
 export function formatSkillsForPrompt(skills: Skill[]): string {
-	const visibleSkills = skills.filter((s) => !s.disableModelInvocation);
+	const visibleSkills = skills.filter((s) => !s.disableModelInvocation && s.category === undefined);
 
 	if (visibleSkills.length === 0) {
 		return "";
@@ -411,10 +404,9 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 	const resolvedCwd = resolvePath(options.cwd);
 	const resolvedAgentDir = resolvePath(agentDir ?? getAgentDir());
 
-	const skillMap = new Map<string, Skill>();
+	const uniqueSkills: Skill[] = [];
 	const realPathSet = new Set<string>();
 	const allDiagnostics: ResourceDiagnostic[] = [];
-	const collisionDiagnostics: ResourceDiagnostic[] = [];
 
 	function addSkills(result: LoadSkillsResult) {
 		allDiagnostics.push(...result.diagnostics);
@@ -426,30 +418,14 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 			if (realPathSet.has(realPath)) {
 				continue;
 			}
-
-			const existing = skillMap.get(skill.name);
-			if (existing) {
-				collisionDiagnostics.push({
-					type: "collision",
-					message: `name "${skill.name}" collision`,
-					path: skill.filePath,
-					collision: {
-						resourceType: "skill",
-						name: skill.name,
-						winnerPath: existing.filePath,
-						loserPath: skill.filePath,
-					},
-				});
-			} else {
-				skillMap.set(skill.name, skill);
-				realPathSet.add(realPath);
-			}
+			realPathSet.add(realPath);
+			uniqueSkills.push(skill);
 		}
 	}
 
 	if (includeDefaults) {
-		addSkills(loadSkillsFromDirInternal(join(resolvedAgentDir, "skills"), "user", true));
-		addSkills(loadSkillsFromDirInternal(resolve(resolvedCwd, CONFIG_DIR_NAME, "skills"), "project", true));
+		addSkills(loadSkillsFromDirInternal(join(resolvedAgentDir, "skills"), "user"));
+		addSkills(loadSkillsFromDirInternal(resolve(resolvedCwd, CONFIG_DIR_NAME, "skills"), "project"));
 	}
 
 	const userSkillsDir = join(resolvedAgentDir, "skills");
@@ -472,6 +448,22 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 		return "path";
 	};
 
+	const categoryForKnownRoot = (filePath: string): string | undefined => {
+		const knownRoots = [userSkillsDir, projectSkillsDir, join(process.env.HOME || homedir(), ".agents", "skills")];
+		let current = resolvedCwd;
+		while (true) {
+			knownRoots.push(join(current, ".agents", "skills"));
+			const parent = dirname(current);
+			if (parent === current) break;
+			current = parent;
+		}
+		for (const root of knownRoots) {
+			const parts = relative(resolve(root), filePath).split(sep);
+			if (parts.length === 3 && parts[2] === "SKILL.md" && parts[0] !== "..") return parts[0];
+		}
+		return undefined;
+	};
+
 	for (const rawPath of skillPaths) {
 		const resolvedPath = resolvePath(rawPath, resolvedCwd, { trim: true });
 		if (!existsSync(resolvedPath)) {
@@ -483,16 +475,20 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 			const stats = statSync(resolvedPath);
 			const source = getSource(resolvedPath);
 			if (stats.isDirectory()) {
-				addSkills(loadSkillsFromDirInternal(resolvedPath, source, true));
-			} else if (stats.isFile() && resolvedPath.endsWith(".md")) {
-				const result = loadSkillFromFile(resolvedPath, source);
+				addSkills(loadSkillsFromDirInternal(resolvedPath, source));
+			} else if (stats.isFile() && basename(resolvedPath) === "SKILL.md") {
+				const result = loadSkillFromFile(resolvedPath, source, categoryForKnownRoot(resolvedPath));
 				if (result.skill) {
 					addSkills({ skills: [result.skill], diagnostics: result.diagnostics });
 				} else {
 					allDiagnostics.push(...result.diagnostics);
 				}
 			} else {
-				allDiagnostics.push({ type: "warning", message: "skill path is not a markdown file", path: resolvedPath });
+				allDiagnostics.push({
+					type: "warning",
+					message: "skill path is not a canonical SKILL.md file",
+					path: resolvedPath,
+				});
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "failed to read skill path";
@@ -500,8 +496,35 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 		}
 	}
 
-	return {
-		skills: Array.from(skillMap.values()),
-		diagnostics: [...allDiagnostics, ...collisionDiagnostics],
-	};
+	const skillsByName = new Map<string, Skill[]>();
+	for (const skill of uniqueSkills) {
+		const named = skillsByName.get(skill.name) ?? [];
+		named.push(skill);
+		skillsByName.set(skill.name, named);
+	}
+	const skills: Skill[] = [];
+	const collisionDiagnostics: ResourceDiagnostic[] = [];
+	for (const [name, named] of skillsByName) {
+		if (named.length === 1) {
+			skills.push(named[0]);
+			continue;
+		}
+		const paths = named.map((skill) => skill.filePath);
+		for (const skill of named) {
+			collisionDiagnostics.push({
+				type: "collision",
+				message: `duplicate skill name "${name}"; disabled all copies: ${paths.join(", ")}`,
+				path: skill.filePath,
+				collision: {
+					resourceType: "skill",
+					name,
+					winnerPath: paths[0],
+					loserPath: skill.filePath,
+					allDisabled: true,
+				},
+			});
+		}
+	}
+
+	return { skills, diagnostics: [...allDiagnostics, ...collisionDiagnostics] };
 }

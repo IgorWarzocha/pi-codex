@@ -94,15 +94,15 @@ describe("skills", () => {
 			expect(diagnostics).toHaveLength(0);
 		});
 
-		it("should load nested skills recursively", () => {
+		it("should classify a second-level skill by category", () => {
 			const { skills, diagnostics } = loadSkillsFromDir({
-				dir: join(fixturesDir, "nested"),
+				dir: fixturesDir,
 				source: "test",
 			});
 
-			expect(skills).toHaveLength(1);
-			expect(skills[0].name).toBe("child-skill");
-			expect(diagnostics).toHaveLength(0);
+			const nested = skills.find((skill) => skill.name === "child-skill");
+			expect(nested?.category).toBe("nested");
+			expect(diagnostics.some((diagnostic) => diagnostic.path?.includes("nested"))).toBe(false);
 		});
 
 		it("should prefer a directory's root SKILL.md over nested SKILL.md files", () => {
@@ -329,6 +329,28 @@ describe("skills", () => {
 			expect((result.match(/<skill>/g) || []).length).toBe(1);
 		});
 
+		it("should exclude categorized skills from the eager prompt catalog", () => {
+			const eager = createTestSkill({
+				name: "eager-skill",
+				description: "Eager.",
+				filePath: "/path/eager/SKILL.md",
+				baseDir: "/path/eager",
+			});
+			const lazy = {
+				...createTestSkill({
+					name: "lazy-skill",
+					description: "Lazy.",
+					filePath: "/path/swe/lazy/SKILL.md",
+					baseDir: "/path/swe/lazy",
+				}),
+				category: "swe",
+			};
+
+			const result = formatSkillsForPrompt([eager, lazy]);
+			expect(result).toContain("eager-skill");
+			expect(result).not.toContain("lazy-skill");
+		});
+
 		it("should return empty string when all skills have disableModelInvocation", () => {
 			const skills: Skill[] = [
 				createTestSkill({
@@ -391,42 +413,21 @@ describe("skills", () => {
 	});
 
 	describe("collision handling", () => {
-		it("should detect name collisions and keep first skill", () => {
-			// Load from first directory
-			const first = loadSkillsFromDir({
-				dir: join(collisionFixturesDir, "first"),
-				source: "first",
+		it("should disable every copy and report every colliding path", () => {
+			const result = loadSkills({
+				agentDir: resolve(__dirname, "fixtures/empty-agent"),
+				cwd: resolve(__dirname, "fixtures/empty-cwd"),
+				skillPaths: [join(collisionFixturesDir, "first"), join(collisionFixturesDir, "second")],
+				includeDefaults: false,
 			});
 
-			const second = loadSkillsFromDir({
-				dir: join(collisionFixturesDir, "second"),
-				source: "second",
-			});
-
-			// Simulate the collision behavior from loadSkills()
-			const skillMap = new Map<string, Skill>();
-			const collisionWarnings: Array<{ skillPath: string; message: string }> = [];
-
-			for (const skill of first.skills) {
-				skillMap.set(skill.name, skill);
-			}
-
-			for (const skill of second.skills) {
-				const existing = skillMap.get(skill.name);
-				if (existing) {
-					collisionWarnings.push({
-						skillPath: skill.filePath,
-						message: `name collision: "${skill.name}" already loaded from ${existing.filePath}`,
-					});
-				} else {
-					skillMap.set(skill.name, skill);
-				}
-			}
-
-			expect(skillMap.size).toBe(1);
-			expect(skillMap.get("calendar")?.sourceInfo.source).toBe("first");
-			expect(collisionWarnings).toHaveLength(1);
-			expect(collisionWarnings[0].message).toContain("name collision");
+			expect(result.skills).toEqual([]);
+			const collisions = result.diagnostics.filter((diagnostic) => diagnostic.collision?.name === "calendar");
+			expect(collisions).toHaveLength(2);
+			expect(collisions.map((diagnostic) => diagnostic.path).sort()).toEqual([
+				join(collisionFixturesDir, "first", "calendar", "SKILL.md"),
+				join(collisionFixturesDir, "second", "calendar", "SKILL.md"),
+			]);
 		});
 	});
 });

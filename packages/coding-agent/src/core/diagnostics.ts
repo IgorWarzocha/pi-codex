@@ -5,6 +5,8 @@ export interface ResourceCollision {
 	loserPath: string;
 	winnerSource?: string; // e.g., "npm:foo", "git:...", "local"
 	loserSource?: string;
+	/** No path won; every colliding resource was disabled. */
+	allDisabled?: boolean;
 }
 
 export interface ResourceDiagnostic {

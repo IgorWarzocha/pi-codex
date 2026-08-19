@@ -142,7 +142,7 @@ Content`,
 			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
 		});
 
-		it("should auto-discover root markdown skills from .pi skill dirs", async () => {
+		it("should not interpret root markdown files as skills", async () => {
 			const skillFile = join(agentDir, "skills", "single-file.md");
 			mkdirSync(join(agentDir, "skills"), { recursive: true });
 			writeFileSync(
@@ -155,7 +155,7 @@ Content`,
 			);
 
 			const result = await packageManager.resolve();
-			expect(result.skills.some((r) => r.path === skillFile && r.enabled)).toBe(true);
+			expect(result.skills.some((r) => r.path === skillFile)).toBe(false);
 		});
 
 		it("should resolve project paths relative to .pi", async () => {
@@ -440,7 +440,7 @@ Content`,
 			expect(result.skills.some((r) => r.path === middleSkill && r.enabled)).toBe(true);
 		});
 
-		it("should ignore root markdown files in .agents/skills but discover nested markdown skills", async () => {
+		it("should discover canonical eager and categorized skills only", async () => {
 			const agentsSkillsDir = join(tempDir, ".agents", "skills");
 			mkdirSync(join(agentsSkillsDir, "nested-skill"), { recursive: true });
 			mkdirSync(join(agentsSkillsDir, "third-party"), { recursive: true });
@@ -448,11 +448,13 @@ Content`,
 			const rootSkill = join(agentsSkillsDir, "root-file.md");
 			const nestedSkill = join(agentsSkillsDir, "nested-skill", "SKILL.md");
 			const nestedMarkdownSkill = join(agentsSkillsDir, "third-party", "child-skill.md");
-			const deeplyNestedMarkdownSkill = join(agentsSkillsDir, "third-party", "vendor", "pack", "deep-skill.md");
+			const categorizedSkill = join(agentsSkillsDir, "third-party", "vendor", "SKILL.md");
+			const deeplyNestedSkill = join(agentsSkillsDir, "third-party", "vendor", "pack", "SKILL.md");
 			writeFileSync(rootSkill, "---\nname: root-file\ndescription: Root markdown file\n---\n");
 			writeFileSync(nestedSkill, "---\nname: nested-skill\ndescription: Nested skill\n---\n");
 			writeFileSync(nestedMarkdownSkill, "---\nname: child-skill\ndescription: Nested markdown skill\n---\n");
-			writeFileSync(deeplyNestedMarkdownSkill, "---\nname: deep-skill\ndescription: Deep markdown skill\n---\n");
+			writeFileSync(categorizedSkill, "---\nname: vendor\ndescription: Categorized skill\n---\n");
+			writeFileSync(deeplyNestedSkill, "---\nname: deep-skill\ndescription: Deep skill\n---\n");
 
 			const pm = new DefaultPackageManager({
 				cwd: join(tempDir, "work"),
@@ -464,8 +466,9 @@ Content`,
 			const result = await pm.resolve();
 			expect(result.skills.some((r) => r.path === rootSkill)).toBe(false);
 			expect(result.skills.some((r) => r.path === nestedSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === nestedMarkdownSkill && r.enabled)).toBe(true);
-			expect(result.skills.some((r) => r.path === deeplyNestedMarkdownSkill && r.enabled)).toBe(true);
+			expect(result.skills.some((r) => r.path === nestedMarkdownSkill)).toBe(false);
+			expect(result.skills.some((r) => r.path === categorizedSkill && r.enabled)).toBe(true);
+			expect(result.skills.some((r) => r.path === deeplyNestedSkill)).toBe(false);
 		});
 
 		it("should keep ~/.agents/skills user-scoped when cwd is under home in a non-git directory", async () => {

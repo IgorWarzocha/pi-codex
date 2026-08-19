@@ -1,6 +1,7 @@
 import { type Api, type Model, supportsResponsesLiteModel } from "@earendil-works/pi-ai";
 import type { EventBus } from "../core/event-bus.ts";
 import type { ToolDefinition } from "../core/extensions/types.ts";
+import type { Skill } from "../core/skills.ts";
 import { createApplyPatchTool, isApplyPatchToolDetails } from "./apply-patch/tool.ts";
 import { createNativeCodeModeTools } from "./code-mode/native-tools.ts";
 import { createNotebookTool } from "./code-mode/notebook-tool.ts";
@@ -44,6 +45,8 @@ export interface CodexToolRuntimeOptions {
 		describeImagesForTextModels?: boolean | undefined;
 		webSearchModel?: string | undefined;
 	};
+	getSkills(): Skill[];
+	refreshSkills(): Promise<void>;
 	onPromotedCustomToolsAdded?(
 		tools: Array<{ name: string; usage: string; description?: string; output?: string }>,
 	): void;
@@ -89,7 +92,12 @@ export function createCodexToolRuntime(options: CodexToolRuntimeOptions): CodexT
 	const codeMode = new CodeModeRuntime({
 		agentDir: options.agentDir,
 		cwd: options.cwd,
-		getTools: (ctx) => createNativeCodeModeTools(tracker, sessions, ctx, options.getPiCodexOptions()),
+		getTools: (ctx) =>
+			createNativeCodeModeTools(tracker, sessions, ctx, {
+				...options.getPiCodexOptions(),
+				getSkills: options.getSkills,
+				refreshSkills: options.refreshSkills,
+			}),
 		getNotebookOptions: () => ({ agentDir: options.agentDir, ...options.getNotebookOptions() }),
 		onPromotedCustomToolsAdded: options.onPromotedCustomToolsAdded,
 	});

@@ -1609,12 +1609,14 @@ export class InteractiveMode {
 			const first = collisionList[0]?.collision;
 			if (!first) continue;
 			lines.push(theme.fg("warning", `  "${name}" collision:`));
-			lines.push(
-				theme.fg(
-					"dim",
-					`    ${theme.fg("success", "✓")} ${this.formatPathWithSource(first.winnerPath, this.findSourceInfoForPath(first.winnerPath, sourceInfos))}`,
-				),
-			);
+			if (!first.allDisabled) {
+				lines.push(
+					theme.fg(
+						"dim",
+						`    ${theme.fg("success", "✓")} ${this.formatPathWithSource(first.winnerPath, this.findSourceInfoForPath(first.winnerPath, sourceInfos))}`,
+					),
+				);
+			}
 			for (const d of collisionList) {
 				if (d.collision) {
 					lines.push(

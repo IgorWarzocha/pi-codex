@@ -338,14 +338,7 @@ function collectFiles(
 	return files;
 }
 
-type SkillDiscoveryMode = "pi" | "agents";
-
-function collectSkillEntries(
-	dir: string,
-	mode: SkillDiscoveryMode,
-	ignoreMatcher?: IgnoreMatcher,
-	rootDir?: string,
-): string[] {
+function collectSkillEntries(dir: string, ignoreMatcher?: IgnoreMatcher, rootDir?: string): string[] {
 	const entries: string[] = [];
 	if (!existsSync(dir)) return entries;
 
@@ -353,64 +346,44 @@ function collectSkillEntries(
 	const ig = ignoreMatcher ?? ignore();
 	addIgnoreRules(ig, dir, root);
 
-	try {
-		const dirEntries = readdirSync(dir, { withFileTypes: true });
-
-		for (const entry of dirEntries) {
-			if (entry.name !== "SKILL.md") {
-				continue;
-			}
-
-			const fullPath = join(dir, entry.name);
-			let isFile = entry.isFile();
-			if (entry.isSymbolicLink()) {
-				try {
-					isFile = statSync(fullPath).isFile();
-				} catch {
-					continue;
-				}
-			}
-
-			const relPath = toPosixPath(relative(root, fullPath));
-			if (isFile && !ig.ignores(relPath)) {
-				entries.push(fullPath);
-				return entries;
-			}
+	const getDirectories = (directory: string): string[] => {
+		addIgnoreRules(ig, directory, root);
+		try {
+			return readdirSync(directory, { withFileTypes: true })
+				.filter((entry) => !entry.name.startsWith(".") && entry.name !== "node_modules")
+				.map((entry) => ({ entry, path: join(directory, entry.name) }))
+				.filter(({ entry, path }) => {
+					if (entry.isDirectory()) return true;
+					if (!entry.isSymbolicLink()) return false;
+					try {
+						return statSync(path).isDirectory();
+					} catch {
+						return false;
+					}
+				})
+				.filter(({ path }) => !ig.ignores(`${toPosixPath(relative(root, path))}/`))
+				.map(({ path }) => path)
+				.sort();
+		} catch {
+			return [];
 		}
+	};
+	const addCanonicalFile = (directory: string): boolean => {
+		const filePath = join(directory, "SKILL.md");
+		try {
+			if (!statSync(filePath).isFile() || ig.ignores(toPosixPath(relative(root, filePath)))) return false;
+			entries.push(filePath);
+			return true;
+		} catch {
+			return false;
+		}
+	};
 
-		for (const entry of dirEntries) {
-			if (entry.name.startsWith(".")) continue;
-			if (entry.name === "node_modules") continue;
-
-			const fullPath = join(dir, entry.name);
-			let isDir = entry.isDirectory();
-			let isFile = entry.isFile();
-
-			if (entry.isSymbolicLink()) {
-				try {
-					const stats = statSync(fullPath);
-					isDir = stats.isDirectory();
-					isFile = stats.isFile();
-				} catch {
-					continue;
-				}
-			}
-
-			const relPath = toPosixPath(relative(root, fullPath));
-			const shouldIncludeMarkdownFile =
-				isFile &&
-				entry.name.endsWith(".md") &&
-				!ig.ignores(relPath) &&
-				((mode === "pi" && dir === root) || (mode === "agents" && dir !== root));
-			if (shouldIncludeMarkdownFile) {
-				entries.push(fullPath);
-				continue;
-			}
-
-			if (!isDir) continue;
-			if (ig.ignores(`${relPath}/`)) continue;
-
-			entries.push(...collectSkillEntries(fullPath, mode, ig, root));
+	try {
+		if (addCanonicalFile(dir)) return entries;
+		for (const firstLevelDir of getDirectories(dir)) {
+			if (addCanonicalFile(firstLevelDir)) continue;
+			for (const secondLevelDir of getDirectories(firstLevelDir)) addCanonicalFile(secondLevelDir);
 		}
 	} catch {
 		// Ignore errors
@@ -419,8 +392,8 @@ function collectSkillEntries(
 	return entries;
 }
 
-function collectAutoSkillEntries(dir: string, mode: SkillDiscoveryMode): string[] {
-	return collectSkillEntries(dir, mode);
+function collectAutoSkillEntries(dir: string): string[] {
+	return collectSkillEntries(dir);
 }
 
 function findGitRepoRoot(startDir: string): string | null {
@@ -622,7 +595,7 @@ function collectAutoExtensionEntries(dir: string): string[] {
  */
 function collectResourceFiles(dir: string, resourceType: ResourceType): string[] {
 	if (resourceType === "skills") {
-		return collectSkillEntries(dir, "pi");
+		return collectSkillEntries(dir);
 	}
 	if (resourceType === "extensions") {
 		return collectAutoExtensionEntries(dir);
@@ -2410,7 +2383,7 @@ export class DefaultPackageManager implements PackageManager {
 			// Project skills from .pi/
 			addResources(
 				"skills",
-				collectAutoSkillEntries(projectDirs.skills, "pi"),
+				collectAutoSkillEntries(projectDirs.skills),
 				projectMetadata,
 				projectOverrides.skills,
 				projectBaseDir,
@@ -2426,7 +2399,7 @@ export class DefaultPackageManager implements PackageManager {
 			};
 			addResources(
 				"skills",
-				collectAutoSkillEntries(agentsSkillsDir, "agents"),
+				collectAutoSkillEntries(agentsSkillsDir),
 				agentsMetadata,
 				projectOverrides.skills,
 				agentsBaseDir,
@@ -2462,7 +2435,7 @@ export class DefaultPackageManager implements PackageManager {
 		// User skills from ~/.pi/agent/
 		addResources(
 			"skills",
-			collectAutoSkillEntries(userDirs.skills, "pi"),
+			collectAutoSkillEntries(userDirs.skills),
 			userMetadata,
 			userOverrides.skills,
 			globalBaseDir,
@@ -2476,7 +2449,7 @@ export class DefaultPackageManager implements PackageManager {
 		};
 		addResources(
 			"skills",
-			collectAutoSkillEntries(userAgentsSkillsDir, "agents"),
+			collectAutoSkillEntries(userAgentsSkillsDir),
 			userAgentsMetadata,
 			userOverrides.skills,
 			userAgentsBaseDir,

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DefaultResourceLoader } from "../../../src/core/resource-loader.ts";
 
-describe("issue #2781 skill collision precedence: user skills should override package skills", () => {
+describe("issue #2781 skill collision handling", () => {
 	let tempDir: string;
 	let agentDir: string;
 	let cwd: string;
@@ -58,53 +58,47 @@ describe("issue #2781 skill collision precedence: user skills should override pa
 		writeFileSync(join(settingsDir, "settings.json"), JSON.stringify({ packages: [pkgDir] }, null, 2));
 	}
 
-	it("user auto-discovered skill should override package skill with same name", async () => {
-		const pkgDir = createPackageWithSkill("web-fetch", "Package web-fetch skill");
-		const userSkillPath = createUserSkill("web-fetch", "User web-fetch override");
-		createSettingsWithPackage(pkgDir, "user");
-
-		const loader = new DefaultResourceLoader({ cwd, agentDir });
-		await loader.reload();
-
-		const { skills } = loader.getSkills();
-		const webFetch = skills.find((s) => s.name === "web-fetch");
-		expect(webFetch).toBeDefined();
-		expect(webFetch!.filePath).toBe(userSkillPath);
-		expect(webFetch!.description).toBe("User web-fetch override");
-	});
-
-	it("project auto-discovered skill should override package skill with same name", async () => {
-		const pkgDir = createPackageWithSkill("web-fetch", "Package web-fetch skill");
-		const projectSkillPath = createProjectSkill("web-fetch", "Project web-fetch override");
-		createSettingsWithPackage(pkgDir, "user");
-
-		const loader = new DefaultResourceLoader({ cwd, agentDir });
-		await loader.reload();
-
-		const { skills } = loader.getSkills();
-		const webFetch = skills.find((s) => s.name === "web-fetch");
-		expect(webFetch).toBeDefined();
-		expect(webFetch!.filePath).toBe(projectSkillPath);
-		expect(webFetch!.description).toBe("Project web-fetch override");
-	});
-
-	it("project skill should override user skill which should override package skill", async () => {
+	it("should disable a user skill that duplicates a package skill", async () => {
 		const pkgDir = createPackageWithSkill("web-fetch", "Package web-fetch skill");
 		createUserSkill("web-fetch", "User web-fetch override");
-		const projectSkillPath = createProjectSkill("web-fetch", "Project web-fetch override");
 		createSettingsWithPackage(pkgDir, "user");
 
 		const loader = new DefaultResourceLoader({ cwd, agentDir });
 		await loader.reload();
 
 		const { skills } = loader.getSkills();
-		const webFetch = skills.find((s) => s.name === "web-fetch");
-		expect(webFetch).toBeDefined();
-		expect(webFetch!.filePath).toBe(projectSkillPath);
-		expect(webFetch!.description).toBe("Project web-fetch override");
+		expect(skills.some((skill) => skill.name === "web-fetch")).toBe(false);
 	});
 
-	it("collision diagnostics should report package skill as loser when user skill wins", async () => {
+	it("should disable a project skill that duplicates a package skill", async () => {
+		const pkgDir = createPackageWithSkill("web-fetch", "Package web-fetch skill");
+		createProjectSkill("web-fetch", "Project web-fetch override");
+		createSettingsWithPackage(pkgDir, "user");
+
+		const loader = new DefaultResourceLoader({ cwd, agentDir });
+		await loader.reload();
+
+		const { skills } = loader.getSkills();
+		expect(skills.some((skill) => skill.name === "web-fetch")).toBe(false);
+	});
+
+	it("should disable all three copies across project, user, and package roots", async () => {
+		const pkgDir = createPackageWithSkill("web-fetch", "Package web-fetch skill");
+		createUserSkill("web-fetch", "User web-fetch override");
+		createProjectSkill("web-fetch", "Project web-fetch override");
+		createSettingsWithPackage(pkgDir, "user");
+
+		const loader = new DefaultResourceLoader({ cwd, agentDir });
+		await loader.reload();
+
+		const { skills } = loader.getSkills();
+		expect(skills.some((skill) => skill.name === "web-fetch")).toBe(false);
+		expect(
+			loader.getSkills().diagnostics.filter((diagnostic) => diagnostic.collision?.name === "web-fetch"),
+		).toHaveLength(3);
+	});
+
+	it("collision diagnostics should report every duplicate path", async () => {
 		const pkgDir = createPackageWithSkill("web-fetch", "Package web-fetch skill");
 		createUserSkill("web-fetch", "User web-fetch override");
 		createSettingsWithPackage(pkgDir, "user");
@@ -113,8 +107,9 @@ describe("issue #2781 skill collision precedence: user skills should override pa
 		await loader.reload();
 
 		const { diagnostics } = loader.getSkills();
-		const collision = diagnostics.find((d) => d.type === "collision" && d.collision?.name === "web-fetch");
-		expect(collision).toBeDefined();
-		expect(collision!.collision!.loserPath).toContain("fake-package");
+		const collisions = diagnostics.filter((d) => d.type === "collision" && d.collision?.name === "web-fetch");
+		expect(collisions).toHaveLength(2);
+		expect(collisions.some((collision) => collision.path?.includes("fake-package"))).toBe(true);
+		expect(collisions.some((collision) => collision.path?.includes(join("agent", "skills")))).toBe(true);
 	});
 });

@@ -7,6 +7,7 @@
 - Replaced the stock `read`, `bash`, `edit`, `write`, `grep`, `find`, and `ls` runtime with the native Pi-Codex `exec_command`, `write_stdin`, `apply_patch`, `view_image`, `web_run`, and `imagegen` tool surface. The obsolete `defaultTools` setting is no longer used.
 - Responses Lite-capable Pi-Codex models now default to Code Mode, exposing `exec` and `wait` while keeping native tools available only inside the restricted JavaScript runtime. Set `executionMode` to `normal` to retain the flat tool surface.
 - Pi-Codex now bundles only the OpenAI Codex provider and native product extension. Stock provider compatibility barrels, legacy tool factory exports, and automatic API fallback for configured providers are no longer part of the product runtime.
+- Skill discovery now accepts only canonical `SKILL.md` packages at the eager or categorized depth; loose Markdown, deeper packages, and duplicate names are disabled.
 
 ### Added
 
@@ -15,6 +16,7 @@
 - Added Notebook Mode with a persistent Deno/TypeScript kernel, durable project and session checkpoints, named profiles, lifecycle controls, journals, diagnostics, and native tool delegation.
 - Added native realtime voice, dictation, GipPity LAN control, Responses Compaction V2, Codex usage and reset credits, cache diagnostics and keepalive, background shell controls, and their Pi-Codex settings.
 - Added native nested `AGENTS.md` discovery when file reads and read-like shell or Code Mode tools enter a more specific repository scope.
+- Added native Code and Notebook Mode skill listing and reading, categorized lazy skills, per-turn rescans, and developer updates for newly available eager skills.
 
 ### Changed
 

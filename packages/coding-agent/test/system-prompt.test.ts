@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import type { Skill } from "../src/core/skills.ts";
+import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { buildSystemPrompt } from "../src/core/system-prompt.ts";
 
 describe("buildSystemPrompt", () => {
@@ -42,5 +44,26 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("- Use tools.exec_command for shell commands; prefer rg and rg --files");
 		expect(prompt).toContain("- Use text() only for concise final output");
 		expect(prompt).not.toContain("Use exec_command for shell commands, file inspection");
+	});
+
+	test("announces eager skills while leaving categorized skills to the native tool", () => {
+		const skill = (name: string, category?: string): Skill => ({
+			name,
+			description: `${name} description`,
+			filePath: `/skills/${category ? `${category}/` : ""}${name}/SKILL.md`,
+			baseDir: `/skills/${category ? `${category}/` : ""}${name}`,
+			...(category ? { category } : {}),
+			sourceInfo: createSyntheticSourceInfo(`/skills/${name}/SKILL.md`, { source: "test" }),
+			disableModelInvocation: false,
+		});
+		const prompt = buildSystemPrompt({
+			cwd: "/workspace",
+			mode: "code",
+			skills: [skill("deploy"), skill("hardening", "swe")],
+		});
+
+		expect(prompt).toContain("- deploy: deploy description");
+		expect(prompt).not.toContain("hardening description");
+		expect(prompt).toContain('use `tools.skills("read <exact-skill-name>")`');
 	});
 });

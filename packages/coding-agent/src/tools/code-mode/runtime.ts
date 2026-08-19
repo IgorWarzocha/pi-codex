@@ -166,7 +166,10 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 	collectTools(ctx?: unknown): CodeModeToolDefinition[] {
 		const extensionContext = isExtensionContext(ctx) ? ctx : undefined;
 		const programmatic = this.getTools(extensionContext);
-		const custom = this.discoverCustomTools(extensionContext);
+		const programmaticNames = new Set(programmatic.map((tool) => tool.name));
+		const custom = this.discoverCustomTools(extensionContext).filter(
+			(tool) => tool.name !== "skills" || !programmaticNames.has(tool.name),
+		);
 		if (this.promptSection !== undefined) {
 			const added = custom.filter(
 				(tool) =>
@@ -202,7 +205,10 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 	buildPromptSection(projectTrusted: boolean): string {
 		if (this.promptSection !== undefined) return this.promptSection;
 		const programmatic = this.getTools();
-		const custom = this.discoverCustomToolsForTrust(projectTrusted);
+		const programmaticNames = new Set(programmatic.map((tool) => tool.name));
+		const custom = this.discoverCustomToolsForTrust(projectTrusted).filter(
+			(tool) => tool.name !== "skills" || !programmaticNames.has(tool.name),
+		);
 		this.customPromptState = new Map(custom.map((tool) => [tool.name, tool.deferLoading]));
 		this.announcedPromotedCustomTools.clear();
 		this.promptSection = buildCodeModeToolsPrompt(
