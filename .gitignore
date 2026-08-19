@@ -39,7 +39,7 @@ out.html
 packages/coding-agent/binaries/
 todo.md
 plans/
-.pi/semantic-grep.sqlite
+.pi/semantic-grep.sqlite*
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
