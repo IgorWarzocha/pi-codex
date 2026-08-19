@@ -16,11 +16,11 @@
           "path": "quickstart.md"
         },
         {
-          "title": "Using Pi",
+          "title": "Using Pi-Codex",
           "path": "usage.md"
         },
         {
-          "title": "Providers",
+          "title": "Codex Authentication",
           "path": "providers.md"
         },
         {
@@ -77,11 +77,11 @@
           "path": "custom-tools.md"
         },
         {
-          "title": "Custom Models",
+          "title": "Codex Model Profiles",
           "path": "models.md"
         },
         {
-          "title": "Custom Providers",
+          "title": "Custom Providers (unsupported)",
           "path": "custom-provider.md"
         }
       ]

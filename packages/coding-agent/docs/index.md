@@ -1,84 +1,69 @@
-# Pi Documentation
+# Pi-Codex Documentation
 
-Pi is a minimal terminal coding harness. It is designed to stay small at the core while being extended through TypeScript extensions, skills, prompt templates, themes, and pi packages.
+Pi-Codex is a TUI-first, OpenAI Codex subscription coding agent. It is a deliberate fork of Pi: it keeps Pi's session tree, extensions, themes, prompt templates, packages, project trust, JSON/RPC interfaces, and SDK foundations, while replacing the product provider, model catalog, system prompt, execution surface, skills, settings, compaction, cache behavior, and voice workflow.
+
+Start with the [Pi-Codex Guide](pi-codex-guide.md). It covers first-run setup, migrating from Pi, the supported model profiles, skills, custom tools, and the status of inherited documentation.
 
 ## Quick start
 
-Install Pi with npm:
-
-```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-```
-
-`--ignore-scripts` disables dependency lifecycle scripts during install. Pi does not require install scripts for normal npm installs.
-
-On Linux or macOS, you can also use the installer:
-
-```bash
-curl -fsSL https://pi.dev/install.sh | sh
-```
-
-To uninstall pi itself, use npm for curl and npm installs:
-
-```bash
-npm uninstall -g @earendil-works/pi-coding-agent
-```
-
-For pnpm, Yarn, or Bun installs, use the matching global remove command: `pnpm remove -g @earendil-works/pi-coding-agent`, `yarn global remove @earendil-works/pi-coding-agent`, or `bun uninstall -g @earendil-works/pi-coding-agent`.
-
-Then run it in a project directory:
-
-```bash
+```sh
 pi
 ```
 
-Authenticate with `/login` for subscription providers, or set an API key such as `ANTHROPIC_API_KEY` before starting pi.
+Then:
 
-For the full first-run flow, see [Quickstart](quickstart.md).
+1. Run `/login` and authenticate with OpenAI Codex.
+2. Run `/model` to choose Luna, Terra, or Sol, a 272K/472K/872K context window, and a reasoning level.
+3. Run `/settings` to choose Code or Notebook Mode and review Codex, Voice, Usage, Display, Terminal, and Advanced settings.
+4. Ask Pi-Codex to work. Code Mode uses `exec` and `wait`; native capabilities are composed with `tools.*` inside `exec`.
+
+User state is separate from upstream Pi:
+
+```text
+~/.pi-codex/agent/    # Pi-Codex
+~/.pi/agent/          # upstream Pi, not loaded as Pi-Codex state
+```
+
+Use `PI_CODEX_HOME` to relocate Pi-Codex's application home, or `PI_CODING_AGENT_DIR` to override the agent directory.
 
 ## Start here
 
-- [Quickstart](quickstart.md) - install, authenticate, and run a first session.
-- [Using Pi](usage.md) - interactive mode, slash commands, context files, and CLI reference.
-- [Providers](providers.md) - subscription and API-key setup for built-in providers.
-- [llama.cpp](llama-cpp.md) - run a local router and manage models with `/llama`.
-- [Security](security.md) - project trust, sandbox boundaries, and vulnerability reporting.
-- [Containerization](containerization.md) - sandbox pi with Gondolin, Docker, or OpenShell.
-- [Settings](settings.md) - global and project settings.
-- [Keybindings](keybindings.md) - default shortcuts and custom keybindings.
-- [Sessions](sessions.md) - session management, branching, and tree navigation.
-- [Compaction](compaction.md) - context compaction and branch summarization.
+- [Pi-Codex Guide](pi-codex-guide.md) — product differences, setup, and migration.
+- [Quickstart](quickstart.md) — authenticate and start a first session.
+- [Using Pi-Codex](usage.md) — interactive UI, commands, sessions, and CLI use.
+- [Codex authentication and model profiles](providers.md) — the shipped provider and supported profiles.
+- [Settings](settings.md) — global/project configuration and Pi-Codex settings.
+- [Sessions](sessions.md) — session tree, branching, exports, and resume.
+- [Compaction](compaction.md) — Responses Compaction V2 and cache-aware summaries.
+- [Security](security.md) — project trust and safe use on real repositories.
 
 ## Customization
 
-- [Extensions](extensions.md) - TypeScript modules for tools, commands, events, and custom UI.
-- [Skills](skills.md) - Agent Skills for reusable on-demand capabilities.
-- [Prompt templates](prompt-templates.md) - reusable prompts that expand from slash commands.
-- [Themes](themes.md) - built-in and custom terminal themes.
-- [Pi packages](packages.md) - bundle and share extensions, skills, prompts, and themes.
-- [Custom models](models.md) - add model entries for supported provider APIs.
-- [Custom providers](custom-provider.md) - implement custom APIs and OAuth flows.
+- [Skills](skills.md) — important and categorized `SKILL.md` packages.
+- [Extensions](extensions.md) — advanced extension API and Pi-Codex compatibility.
+- [Prompt Templates](prompt-templates.md) — reusable prompt expansions.
+- [Themes](themes.md) — TUI themes.
+- [Pi Packages](packages.md) — reviewed distribution of extensions and resources.
+- [Code Mode Custom Tools](custom-tools.md) — native deferred custom tools.
+- [Codex model profiles](models.md) — the supported model/context/reasoning matrix.
+- [Custom providers](custom-provider.md) — retained generic API, not a supported Pi-Codex product path.
 
-## Programmatic usage
+## Interfaces and reference
 
-- [SDK](sdk.md) - embed pi in Node.js applications.
-- [RPC mode](rpc.md) - integrate over stdin/stdout JSONL.
-- [JSON event stream mode](json.md) - print mode with structured events.
-- [TUI components](tui.md) - build custom terminal UI for extensions.
+- [Session Format](session-format.md) — JSONL session format.
+- [SDK](sdk.md) — programmatic use of the retained core.
+- [RPC Mode](rpc.md) and [JSON Event Stream Mode](json.md) — machine interfaces.
+- [TUI Components](tui.md) — reusable terminal UI package.
+- [Environment Variables](environment-variables.md) — process configuration and execution metadata.
 
-## Reference
+## Platform and development
 
-- [Environment variables](environment-variables.md) - Pi process configuration and session metadata available to bash tools.
-- [Session format](session-format.md) - JSONL session file format, entry types, and SessionManager API.
+- [Terminal Setup](terminal-setup.md), [tmux](tmux.md), [Windows](windows.md), [Termux](termux.md), and [Shell Aliases](shell-aliases.md).
+- [Containerization](containerization.md) — optional external isolation patterns.
+- [Development](development.md) — contributor workflow for this fork.
 
-## Platform setup
+## Different from upstream Pi
 
-- [Windows](windows.md)
-- [Termux on Android](termux.md)
-- [tmux](tmux.md)
-- [Terminal setup](terminal-setup.md)
-- [Shell aliases](shell-aliases.md)
+Pi-Codex does not ship a general provider catalog, API-key setup, Ollama/llama.cpp integration, or Normal Mode. Upstream documentation and extensions that assume top-level `read`, `bash`, `edit`, `write`, `grep`, `find`, or `ls` need adaptation: Code and Notebook Mode expose `exec`, `wait`, and, in Notebook Mode, `notebook`, with nested capabilities under `tools.*`.
 
-## Development
-
-- [Development](development.md) - local setup, project structure, and debugging.
+The retained generic SDK and extension APIs can expose broader concepts internally. Their presence does not expand the supported Pi-Codex CLI product surface.

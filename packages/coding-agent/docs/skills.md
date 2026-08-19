@@ -1,232 +1,85 @@
-> pi can create skills. Ask it to build one for your use case.
-
 # Skills
 
-Skills are self-contained capability packages that the agent loads on-demand. A skill provides specialized workflows, setup instructions, helper scripts, and reference documentation for specific tasks.
+Skills are reusable instruction packages. Pi-Codex recognizes only canonical uppercase `SKILL.md`; arbitrary Markdown files are never inferred to be skills.
 
-Pi implements the [Agent Skills standard](https://agentskills.io/specification), warning about most violations but remaining lenient. Pi allows skill names to differ from their parent directory even though the standard disallows it; that rule is suboptimal for shared skill directories used across multiple agent harnesses.
+> Skills can direct the model to execute commands or use bundled assets. Review a skill before installing or trusting it.
 
-## Table of Contents
+## Roots
 
-- [Locations](#locations)
-- [How Skills Work](#how-skills-work)
-- [Skill Commands](#skill-commands)
-- [Skill Structure](#skill-structure)
-- [Frontmatter](#frontmatter)
-- [Validation](#validation)
-- [Example](#example)
-- [Skill Repositories](#skill-repositories)
+Pi-Codex discovers skills from these roots:
 
-## Locations
-
-> **Security:** Skills can instruct the model to perform any action and may include executable code the model invokes. Review skill content before use.
-
-Pi loads skills from:
-
-- Global:
-  - `~/.pi/agent/skills/`
-  - `~/.agents/skills/`
-- Project (only after the project is trusted):
-  - `.pi/skills/`
-  - `.agents/skills/` in `cwd` and ancestor directories (up to git repo root, or filesystem root when not in a repo)
-- Packages: `skills/` directories or `pi.skills` entries in `package.json`
-- Settings: `skills` array with files or directories
-- CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)
-
-Discovery rules:
-- In `~/.pi/agent/skills/` and `.pi/skills/`, direct root `.md` files are discovered as individual skills when they have valid skill frontmatter with a non-empty `description`
-- In all skill locations, directories containing `SKILL.md` are discovered recursively
-- In `~/.agents/skills/` and project `.agents/skills/`, root `.md` files are ignored, but nested `.md` files in grouping folders are discovered when they declare skill frontmatter
-- Root Markdown files other than `SKILL.md` that do not look like skills are ignored silently
-
-Disable discovery with `--no-skills` (explicit `--skill` paths still load).
-
-### Using Skills from Other Harnesses
-
-To use skills from Claude Code or OpenAI Codex, add their directories to settings:
-
-```json
-{
-  "skills": [
-    "~/.claude/skills",
-    "~/.codex/skills"
-  ]
-}
+```text
+~/.pi-codex/agent/skills/       # global
+<cwd>/.pi/skills/               # trusted project root
+<cwd-or-ancestor>/.agents/skills/  # trusted, up to Git root
 ```
 
-For project-level Claude Code skills, add to `.pi/settings.json`:
+Explicit settings, package, and CLI skill paths remain supported as advanced resource configuration. Global upstream roots such as `~/.pi/agent/skills/` and `~/.agents/skills/` are not Pi-Codex roots; copy wanted packages deliberately.
 
-```json
-{
-  "skills": ["../.claude/skills"]
-}
+## Package shape
+
+One directory level beneath a skills root is an **important** skill. Two levels means a **lazy categorized** skill:
+
+```text
+skills/
+├── deploy/
+│   └── SKILL.md                # important/eager: announced at session start
+├── swe/
+│   ├── hardening/
+│   │   └── SKILL.md            # lazy: category "swe"
+│   └── release/
+│       └── SKILL.md            # lazy: category "swe"
+└── creative/
+    └── design/
+        └── SKILL.md            # lazy: category "creative"
 ```
 
-## How Skills Work
-
-1. At startup, pi scans skill locations and extracts names and descriptions
-2. The system prompt includes available skills in XML format per the [specification](https://agentskills.io/integrate-skills)
-3. When a task matches, the agent uses `read` to load the full SKILL.md (models don't always do this; use prompting or `/skill:name` to force it)
-4. The agent follows the instructions, using relative paths to reference scripts and assets
-
-This is progressive disclosure: only descriptions are always in context, full instructions load on-demand.
-
-## Skill Commands
-
-Skills register as `/skill:name` commands:
-
-```bash
-/skill:brave-search           # Load and execute the skill
-/skill:pdf-tools extract      # Load skill with arguments
-```
-
-Arguments after the command are appended to the skill content as `User: <args>`.
-
-Toggle skill commands via `/settings` in interactive mode or in `settings.json`:
-
-```json
-{
-  "enableSkillCommands": true
-}
-```
-
-## Skill Structure
-
-A skill is a directory with a `SKILL.md` file. Everything else is freeform.
-
-```
-my-skill/
-├── SKILL.md              # Required: frontmatter + instructions
-├── scripts/              # Helper scripts
-│   └── process.sh
-├── references/           # Detailed docs loaded on-demand
-│   └── api-reference.md
-└── assets/
-    └── template.json
-```
-
-### SKILL.md Format
-
-````markdown
----
-name: my-skill
-description: What this skill does and when to use it. Be specific.
----
-
-# My Skill
-
-## Setup
-
-Run once before first use:
-```bash
-cd /path/to/skill && npm install
-```
-
-## Usage
-
-```bash
-./scripts/process.sh <input>
-```
-````
-
-Use relative paths from the skill directory:
-
-```markdown
-See [the reference guide](references/REFERENCE.md) for details.
-```
+- Important skills are named in the initial system prompt and can be read on demand.
+- Lazy skills are omitted from the initial prompt except for their category availability.
+- Deeper `SKILL.md` files, scripts, references, and assets remain package contents; they are not separate discovered skills.
+- Duplicate skill names are invalid. Pi-Codex reports every collision instead of silently choosing a root.
 
 ## Frontmatter
 
-Per the [Agent Skills specification](https://agentskills.io/specification#frontmatter-required):
+Use standard Agent Skills frontmatter with a non-empty `name` and `description`:
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Max 64 chars. Lowercase a-z, 0-9, hyphens. Unlike the standard, Pi does not require this to match the parent directory because that standard requirement is suboptimal for shared skill directories. |
-| `description` | Yes | Max 1024 chars. What the skill does and when to use it. |
-| `license` | No | License name or reference to bundled file. |
-| `compatibility` | No | Max 500 chars. Environment requirements. |
-| `metadata` | No | Arbitrary key-value mapping. |
-| `allowed-tools` | No | Space-delimited list of pre-approved tools (experimental). |
-| `disable-model-invocation` | No | When `true`, skill is hidden from system prompt. Users must use `/skill:name`. |
-
-### Name Rules
-
-- 1-64 characters
-- Lowercase letters, numbers, hyphens only
-- No leading/trailing hyphens
-- No consecutive hyphens
-Pi does not require the name to match the parent directory. The Agent Skills standard does, but that requirement is suboptimal for shared skill directories used by multiple tools.
-
-Valid: `pdf-processing`, `data-analysis`, `code-review`
-Invalid: `PDF-Processing`, `-pdf`, `pdf--processing`
-
-### Description Best Practices
-
-The description determines when the agent loads the skill. Be specific.
-
-Good:
-```yaml
-description: Extracts text and tables from PDF files, fills PDF forms, and merges multiple PDFs. Use when working with PDF documents.
-```
-
-Poor:
-```yaml
-description: Helps with PDFs.
-```
-
-## Validation
-
-Pi validates skills against the Agent Skills standard. Most issues produce warnings but still load the skill:
-
-- Name exceeds 64 characters or contains invalid characters
-- Name starts/ends with hyphen or has consecutive hyphens
-- Description exceeds 1024 characters
-
-Unknown frontmatter fields are ignored.
-
-Declared skills with missing descriptions are not loaded. Malformed `SKILL.md` files and `SKILL.md` files without a description produce warnings and are not loaded. Other Markdown files without valid skill frontmatter are ignored.
-
-Name collisions (same name from different locations) warn and keep the first skill found.
-
-## Example
-
-```
-brave-search/
-├── SKILL.md
-├── search.js
-└── content.js
-```
-
-**SKILL.md:**
-````markdown
+```md
 ---
-name: brave-search
-description: Web search and content extraction via Brave Search API. Use for searching documentation, facts, or any web content.
+name: release
+description: Prepare and verify a Pi-Codex release.
 ---
 
-# Brave Search
+# Release
 
-## Setup
-
-```bash
-cd /path/to/brave-search && npm install
+Follow the repository release procedure exactly.
 ```
 
-## Search
+Keep paths to scripts, references, and assets relative to the skill package. Canonical `SKILL.md` is required even when another harness supports lower-case or arbitrary Markdown entry files.
 
-```bash
-./search.js "query"              # Basic search
-./search.js "query" --content    # Include page content
+## Use from the agent
+
+Code and Notebook Mode compose skills through `exec`:
+
+```ts
+await tools.skills("list")
+await tools.skills("list swe creative")
+await tools.skills("read release")
+await tools.skills("read deploy")
 ```
 
-## Extract Page Content
+The read result includes the body and safe absolute paths for package content. Pi-Codex rescans before each new turn and each skills call. New important skills are announced to the current session as non-triggering developer messages; new lazy skills appear on the next list query.
 
-```bash
-./content.js https://example.com
+## Migrate from Pi or another harness
+
+Copy first, then review package depth and duplicate names:
+
+```sh
+mkdir -p ~/.pi-codex/agent/skills
+cp -R ~/.pi/agent/skills/. ~/.pi-codex/agent/skills/
 ```
-````
 
-## Skill Repositories
+Keep broadly useful skills directly under `skills/`. Move specialist skills under one category. Do not copy into a destination containing same-named packages until you have compared and resolved them.
 
-- [Anthropic Skills](https://github.com/anthropics/skills) - Document processing (docx, pdf, pptx, xlsx), web development
-- [Pi Skills](https://github.com/badlogic/pi-skills) - Web search, browser automation, Google APIs, transcription
+## Different from upstream Pi
+
+Pi-Codex does not discover root `.md` files as skills, does not scan global `~/.agents/skills/`, and does not expose skills as `/skill:name` commands in its native Code/Notebook workflow. Upstream skill docs that tell the agent to use direct `read` are replaced by `tools.skills(...)` inside `exec`.

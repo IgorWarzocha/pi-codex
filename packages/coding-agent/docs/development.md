@@ -1,71 +1,40 @@
 # Development
 
-See [AGENTS.md](https://github.com/earendil-works/pi-mono/blob/main/AGENTS.md) for additional guidelines.
+Pi-Codex is maintained as a syncable fork of Pi. Keep permanent product policy narrow and localized; retain shared core foundations where possible.
 
-## Setup
+## Workspace
 
-```bash
-git clone https://github.com/earendil-works/pi-mono
-cd pi-mono
-npm install
-npm run build
+The coding agent lives in `packages/coding-agent/`. Product-specific policy belongs close to `src/product/` and `src/extensions/pi-codex/`; generic Pi foundations remain in core packages.
+
+Read repository `AGENTS.md` files before changing code. They define the contributor workflow and validation rules.
+
+## Install and validate
+
+Install dependencies without lifecycle scripts:
+
+```sh
+npm install --ignore-scripts
 ```
 
-Run from source:
+After code changes, run:
 
-```bash
-/path/to/pi-mono/pi-test.sh
+```sh
+npm run check
 ```
 
-The script can be run from any directory. Pi keeps the caller's current working directory.
+Use focused tests while iterating. Run `./test.sh` for the full non-e2e gate once the change has converged. Do not run unrequested builds or the raw full Vitest suite.
 
-## Forking / Rebranding
+## Product boundaries
 
-Configure via `package.json`:
+Pi-Codex owns:
 
-```json
-{
-  "piConfig": {
-    "name": "pi",
-    "configDir": ".pi"
-  }
-}
-```
+- OpenAI Codex provider/model policy;
+- Code/Notebook composition and native prompt behavior;
+- skills, custom tools, AGENTS loading, settings migration, cache/compaction, usage, and voice product behavior;
+- user state under `~/.pi-codex/agent`.
 
-Change `name`, `configDir`, and `bin` field for your fork. Affects CLI banner, config paths, and environment variable names.
+Before adding a fork-specific workaround, check whether the shared core needs a small native hook instead. Keep upstream synchronization in mind and do not silently fall back from a product contract.
 
-## Path Resolution
+## Different from upstream Pi
 
-Three execution modes: npm install, standalone binary, tsx from source.
-
-**Always use `src/config.ts`** for package assets:
-
-```typescript
-import { getPackageDir, getThemeDir } from "./config.js";
-```
-
-Never use `__dirname` directly for package assets.
-
-## Debug Command
-
-`/debug` (hidden) writes to `~/.pi/agent/pi-debug.log`:
-- Rendered TUI lines with ANSI codes
-- Last messages sent to the LLM
-
-## Testing
-
-```bash
-./test.sh                         # Run non-LLM tests (no API keys needed)
-npm test                          # Run all tests
-npm test -- test/specific.test.ts # Run specific test
-```
-
-## Project Structure
-
-```
-packages/
-  ai/           # LLM provider abstraction
-  agent/        # Agent loop and message types  
-  tui/          # Terminal UI components
-  coding-agent/ # CLI and interactive mode
-```
+Do not follow inherited development instructions that clone another repository, install a published generic package, build by default, or debug in `~/.pi/agent`. This checkout and its local `AGENTS.md` files are authoritative for Pi-Codex development.

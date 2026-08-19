@@ -1,111 +1,21 @@
 # Containerization
 
-Pi runs with all permissions by default, but in some cases, you will want to have more control over what directories Pi can write to and which accesses it has.
+Pi-Codex runs with the permissions of its host user. Use a container, VM, separate account, or dedicated worktree when a repository needs stronger isolation.
 
-There are two general options. You can either
-1. run the whole `pi` process inside an isolated environment, or
-2. run `pi` on the host and route tool execution into an isolated environment.
+## What to isolate
 
-## Choose a pattern
+Mount only the repository and credentials the task needs. Consider separate writable and read-only mounts, a disposable home directory, restricted network access, and a minimal shell/toolchain image.
 
-| Pattern | What is isolated | Best for | Notes |
-| --- | --- | --- | --- |
-| Gondolin extension | Built-in tools and `!` commands | Local micro-VM isolation while keeping auth on host | See [`examples/extensions/gondolin/`](../examples/extensions/gondolin/). |
-| Plain Docker | Whole `pi` process in a local container | Simple local isolation | Provider API keys enter the container. |
-| OpenShell | Whole `pi` process in a policy-controlled sandbox | Local or remote managed sandbox | Requires an OpenShell gateway |
+Pi-Codex state normally lives in `~/.pi-codex/agent/`. In a container, mount a dedicated state directory or set `PI_CODEX_HOME`/`PI_CODING_AGENT_DIR`; do not casually mount your upstream Pi state or host credential directory.
 
-Extensions run wherever the `pi` process runs. If you run host `pi` with a tool-routing extension, other custom extension tools still run on the host unless they also delegate their operations.
+## Codex authentication
 
-## Gondolin
+Authenticate inside the environment with `/login`, or deliberately provision the isolated Pi-Codex state. Treat copied authentication files as sensitive. Session exports, cache diagnostics, and project mounts may also contain source-sensitive data.
 
-[Gondolin](https://github.com/earendil-works/gondolin) is a local Linux micro-VM.
-Use the [example extension](../examples/extensions/gondolin) when you want `pi` on the host but all built-in tools routed into the VM.
+## External sandbox integrations
 
-Setup:
+Gondolin and OpenShell-style integrations are optional external patterns. They are not built-in Pi-Codex guarantees and may need adaptation for Code/Notebook Mode and `tools.*`. Review their current documentation, network behavior, and credentials before enabling them.
 
-```bash
-cp -R packages/coding-agent/examples/extensions/gondolin ~/.pi/agent/extensions/gondolin
-cd ~/.pi/agent/extensions/gondolin
-npm install --ignore-scripts
-```
+## Different from upstream Pi
 
-Run from the project you want mounted:
-
-```bash
-cd /path/to/project
-pi -e ~/.pi/agent/extensions/gondolin
-```
-
-The extension mounts the host cwd at `/workspace` in the VM and overrides `read`, `write`, `edit`, `bash`, `grep`, `find`, and `ls`.
-User `!` commands are routed into the VM, as well.
-File changes under `/workspace` write through to the host.
-
-Requirements: Node.js >= 23.6.0 for `@earendil-works/gondolin`, plus QEMU (requires installation through your package manager).
-
-## Plain Docker
-
-Run the whole `pi` process in Docker when you want the simplest local container boundary.
-
-`Dockerfile.pi`:
-
-```dockerfile
-FROM node:24-bookworm-slim
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates git ripgrep \
-  && rm -rf /var/lib/apt/lists/*
-RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-
-WORKDIR /workspace
-ENTRYPOINT ["pi"]
-```
-
-Build and run:
-
-```bash
-docker build -t pi-sandbox -f Dockerfile.pi .
-
-docker run --rm -it \
-  -e ANTHROPIC_API_KEY \
-  -v "$PWD:/workspace" \
-  -v pi-agent-home:/root/.pi/agent \
-  pi-sandbox
-```
-
-The `-v "$PWD:/workspace"` mounts your current directory into the container at /workspace such that reads and writes in `/workspace` inside Docker directly affect your host files, like in the Gondolin example.
-
-Use a named volume for `/root/.pi/agent` if you want container-local settings and sessions. Mounting your host `~/.pi/agent` exposes host auth and session files to the container.
-
-## OpenShell
-
-Use [NVIDIA OpenShell](https://docs.nvidia.com/openshell/about/overview) when you want a policy-controlled sandbox with filesystem, process, network, credential, and inference controls.
-OpenShell can run sandboxes through a local gateway backed by Docker, Podman, or a VM runtime, or through a remote Kubernetes gateway.
-
-Every sandbox requires an active gateway.
-Register and select one before creating a sandbox:
-
-```bash
-openshell gateway add <gateway-url> --name <name>
-openshell gateway select <name>
-```
-
-Launch `pi` inside an OpenShell sandbox:
-
-```bash
-openshell sandbox create --name pi-sandbox --from pi -- pi
-```
-
-In this pattern, the whole `pi` process runs inside the sandbox.
-Built-in tools, `!` commands, and extension tools execute inside the OpenShell boundary.
-
-If the gateway is remote, project files are not bind-mounted from the host, meaning writes in the sandbox are not reflected on your machine.
-Clone the repository inside the sandbox or use OpenShell file transfer commands:
-
-```bash
-openshell sandbox upload pi-sandbox ./repo /workspace
-openshell sandbox download pi-sandbox /workspace/repo ./repo-out
-```
-
-OpenShell providers can keep raw model API keys outside the sandbox.
-When inference routing is configured, code inside the sandbox can call `https://inference.local`, and the gateway injects the configured provider credentials upstream.
-Configure Pi to use the corresponding OpenAI-compatible or Anthropic-compatible endpoint if you want model traffic to use this route.
+The isolation principles are the same, but upstream image, provider, `~/.pi/agent`, and direct-tool examples do not describe the Pi-Codex product. Pi-Codex supports the OpenAI Codex subscription runtime only.

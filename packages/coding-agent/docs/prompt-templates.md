@@ -8,7 +8,7 @@ Prompt templates are Markdown snippets that expand into full prompts. Type `/nam
 
 Pi loads prompt templates from:
 
-- Global: `~/.pi/agent/prompts/*.md`
+- Global: `~/.pi-codex/agent/prompts/*.md`
 - Project: `.pi/prompts/*.md` (only after the project is trusted)
 - Packages: `prompts/` directories or `pi.prompts` entries in `package.json`
 - Settings: `prompts` array with files or directories
@@ -94,3 +94,7 @@ Usage: `/component Button "onClick handler" "disabled support"`
 
 - Template discovery in `prompts/` is non-recursive.
 - If you want templates in subdirectories, add them explicitly via `prompts` settings or a package manifest.
+
+## Different from upstream Pi
+
+Prompt templates retain Pi's expansion format, but Pi-Codex expands them into a Code/Notebook session. Write templates for OpenAI Codex and `exec`/`tools.*`, not top-level `read`, `bash`, `edit`, or `write` tools. Upstream global templates under `~/.pi/agent/prompts/` are not loaded automatically.

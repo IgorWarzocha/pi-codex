@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, cpSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,7 +29,7 @@ copyFileSync(join(packageRoot, "src", "shell", "tree-sitter-bash.wasm"), join(sh
 
 const docsDirectory = join(outputRoot, "docs");
 mkdirSync(docsDirectory, { recursive: true });
-for (const name of ["custom-tools.md", "pi-codex-guide.md"]) {
+for (const name of readdirSync(join(packageRoot, "docs")).filter((name) => name.endsWith(".md"))) {
 	copyFileSync(join(packageRoot, "docs", name), join(docsDirectory, name));
 }
 

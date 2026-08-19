@@ -1,6 +1,6 @@
 # Keybindings
 
-All keyboard shortcuts can be customized via `~/.pi/agent/keybindings.json`. Each action can be bound to one or more keys.
+All keyboard shortcuts can be customized via `~/.pi-codex/agent/keybindings.json`. Each action can be bound to one or more keys.
 
 The config file uses the same namespaced keybinding ids that pi uses internally and that extension authors use in `keyHint()` and injected `keybindings` managers.
 
@@ -149,7 +149,7 @@ This routing remains configurable through the ordinary action bindings. For exam
 | `app.model.select` | `ctrl+l` | Open model selector |
 | `app.model.cycleForward` | `ctrl+p` | Cycle to next model |
 | `app.model.cycleBackward` | `shift+ctrl+p` | Cycle to previous model |
-| `app.thinking.cycle` | `shift+tab` | Cycle thinking level |
+| `app.thinking.cycle` | `shift+tab` | Cycle Codex reasoning level |
 | `app.thinking.toggle` | `ctrl+t` | Collapse or expand thinking blocks |
 
 ### Display and Message Queue
@@ -194,10 +194,12 @@ Used inside the tabbed `/settings` screen. Left and right arrows also switch sec
 |--------|---------|-------------|
 | `app.settings.nextTab` | `tab`, `right` | Open the next settings section |
 | `app.settings.previousTab` | `shift+tab`, `left` | Open the previous settings section |
+| `app.settings.refreshUsage` | `r` | Refresh Codex usage |
+| `app.settings.consumeUsageReset` | `ctrl+r` | Consume a banked Codex reset |
 
 ## Custom Configuration
 
-Create `~/.pi/agent/keybindings.json`:
+Create `~/.pi-codex/agent/keybindings.json`:
 
 ```json
 {
@@ -208,6 +210,10 @@ Create `~/.pi/agent/keybindings.json`:
 ```
 
 Each action can have a single key or an array of keys. User config overrides defaults.
+
+## Different from upstream Pi
+
+Keybinding IDs are mostly retained for extension compatibility. `app.model.select` opens Pi-Codex's three-column model/context/reasoning selector rather than a generic provider picker. Upstream keybinding files under `~/.pi/agent/` are separate; copy wanted bindings into the Pi-Codex directory.
 
 On native Windows, `app.suspend` has no default binding because Windows terminals do not support Unix job control. If you bind it manually, pi shows a status message instead of suspending. In WSL, the normal Linux `ctrl+z`/`fg` behavior still applies.
 

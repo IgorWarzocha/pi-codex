@@ -2,7 +2,11 @@
 
 Pi-Codex is an opinionated, TUI-first fork of Pi for the OpenAI Codex subscription runtime. It keeps Pi's sessions, extensions, themes, prompt templates, project trust, JSON/RPC interfaces, and much of its SDK, but changes the provider, model, prompt, tool, skill, settings, compaction, and voice experience.
 
-This document is the starting point for setup and migration. Some inherited Pi documentation remains in the source tree and may still describe upstream paths, providers, models, or tools. When documents disagree, this guide describes the intended product surface and the current source is authoritative.
+This document is the starting point for setup and migration. The documentation set has been rewritten around the Pi-Codex product. Each affected page preserves a compact **Different from upstream Pi** section so a user or agent can identify deliberately removed compatibility surfaces. When documentation and current source disagree, current source is authoritative.
+
+## Different from upstream Pi
+
+This guide is the fork's migration map. It deliberately calls out removed general-provider, Normal Mode, and direct-tool assumptions instead of presenting compatibility internals as supported product features. The remainder of the documentation follows the same rule.
 
 ## Product differences
 
@@ -206,25 +210,16 @@ Tree summarization is adapted for the Codex cache model: it uses a hidden summar
 
 These inherited systems remain useful, but examples that select non-Codex providers or invoke stock direct tools do not describe the fork's default product behavior.
 
-## Documentation status
+## Documentation map
 
-The documentation tree originated upstream and has not yet been fully rewritten for Pi-Codex.
+All shipped Markdown documentation is available alongside this guide in installed package and binary `docs/` directories.
 
-Use these documents with confidence:
+- Start with `quickstart.md`, `usage.md`, `settings.md`, `providers.md`, and `models.md` for the product.
+- Use `skills.md`, `custom-tools.md`, `extensions.md`, `packages.md`, `prompt-templates.md`, and `themes.md` for customization.
+- Use `sessions.md`, `compaction.md`, `session-format.md`, `json.md`, `rpc.md`, and `sdk.md` for session and integration work.
+- Use `security.md`, `containerization.md`, `terminal-setup.md`, `tmux.md`, `windows.md`, `termux.md`, and `shell-aliases.md` for operating context.
 
-- `pi-codex-guide.md`: fork differences, setup, and migration
-- `custom-tools.md`: native Code/Notebook custom tools
-- `terminal-setup.md`, `tmux.md`, and most of `tui.md`: terminal and TUI mechanics
-
-These areas remain conceptually useful but contain stale paths or examples:
-
-- sessions, security, JSON mode, RPC mode, prompt templates, themes, packages, and keybindings
-
-Treat these documents as upstream reference until rewritten:
-
-- quickstart, usage, settings, providers, models, skills, extensions, SDK, compaction, session format, custom providers, containerization, development, shell aliases, Termux, Windows, and llama.cpp
-
-Common stale assumptions are `~/.pi/agent`, multiple built-in providers, Anthropic examples, and top-level `read`/`bash`/`edit`/`write` tools. Verify fork behavior in current source before acting on those examples.
+`custom-provider.md` and `llama-cpp.md` are intentionally short unsupported-feature references. They explain what upstream Pi offered and confirm that Pi-Codex does not ship it. The generic shared core may still contain compatibility primitives; this does not make them supported Pi-Codex configuration.
 
 ## Troubleshooting checklist
 

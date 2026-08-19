@@ -19,7 +19,7 @@ Themes are JSON files that define colors for the TUI.
 Pi loads themes from:
 
 - Built-in: `dark`, `light`
-- Global: `~/.pi/agent/themes/*.json`
+- Global: `~/.pi-codex/agent/themes/*.json`
 - Project: `.pi/themes/*.json` (only after the project is trusted)
 - Packages: `themes/` directories or `pi.themes` entries in `package.json`
 - Settings: `themes` array with files or directories
@@ -61,8 +61,8 @@ and saves it normally.
 1. Create a theme file:
 
 ```bash
-mkdir -p ~/.pi/agent/themes
-vim ~/.pi/agent/themes/my-theme.json
+mkdir -p ~/.pi-codex/agent/themes
+vim ~/.pi-codex/agent/themes/my-theme.json
 ```
 
 2. Define the theme with all required colors (see [Color Tokens](#color-tokens)):
@@ -318,3 +318,7 @@ echo $COLORTERM  # Should output "truecolor" or "24bit"
 See the built-in themes:
 - [dark.json](../src/modes/interactive/theme/dark.json)
 - [light.json](../src/modes/interactive/theme/light.json)
+
+## Different from upstream Pi
+
+Theme format and project-local `.pi/themes/` support are retained. Pi-Codex does not read upstream global themes from `~/.pi/agent/themes/`; copy a theme into the Pi-Codex directory or add it explicitly through settings.

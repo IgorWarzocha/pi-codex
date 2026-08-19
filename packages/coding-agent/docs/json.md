@@ -1,93 +1,21 @@
 # JSON Event Stream Mode
 
-```bash
-pi --mode json "Your prompt"
+Use print mode with `--mode json` to receive JSON Lines events on stdout:
+
+```sh
+pi --mode json -p "Summarize this repository"
 ```
 
-Outputs all session events as JSON lines to stdout. Useful for integrating pi into other tools or custom UIs.
+Each line is one JSON object. `message_start`, `message_update`, and `message_end` describe agent-session activity; errors are emitted as structured events. For assistant streaming, `message_update` sends the delta event rather than repeatedly serializing the whole assistant message. The final update includes usage when available.
 
-## Event Types
+JSON mode is intended for automation. Keep stdout exclusively for the event stream and send diagnostics to stderr. Use `--no-session` if the invocation should not persist a session.
 
-Wire events use `JsonAgentSessionEvent`. It matches
-[`AgentSessionEvent`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/agent-session.ts)
-except that streaming message updates omit cumulative snapshots:
+The exported `JsonAgentSessionEvent` type in `src/modes/json-event.ts` is the wire-contract source of truth. Consumers should ignore fields they do not need so new metadata can be added compatibly.
 
-```typescript
-type WithoutPartial<T> = T extends { partial: unknown } ? Omit<T, "partial"> : T;
+## Pi-Codex constraints
 
-type JsonAgentSessionEvent =
-  | Exclude<AgentSessionEvent, { type: "message_update" }>
-  | {
-      type: "message_update";
-      usage: Usage;
-      assistantMessageEvent: WithoutPartial<AssistantMessageEvent>;
-    };
-```
+The underlying event format is shared with Pi, but the launched runtime is Codex-only: authenticate through Pi-Codex, select one of the supported profiles, and expect Code/Notebook execution behavior in events and messages. Do not configure generic providers or direct stock tools through JSON mode.
 
-`queue_update` emits the full pending steering and follow-up queues whenever they change. `compaction_start` and `compaction_end` cover both manual and automatic compaction.
+## Different from upstream Pi
 
-Other base events come from
-[`AgentEvent`](https://github.com/earendil-works/pi-mono/blob/main/packages/agent/src/types.ts):
-
-```typescript
-type AgentEvent =
-  // Agent lifecycle
-  | { type: "agent_start" }
-  | { type: "agent_end"; messages: AgentMessage[] }
-  // Turn lifecycle
-  | { type: "turn_start" }
-  | { type: "turn_end"; message: AgentMessage; toolResults: ToolResultMessage[] }
-  // Message lifecycle
-  | { type: "message_start"; message: AgentMessage }
-  | { type: "message_update"; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
-  | { type: "message_end"; message: AgentMessage }
-  // Tool execution
-  | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
-  | { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
-  | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
-```
-
-## Message Types
-
-Base messages from [`packages/ai/src/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/types.ts#L134):
-- `UserMessage` (line 134)
-- `AssistantMessage` (line 140)
-- `ToolResultMessage` (line 152)
-
-Extended messages from [`packages/coding-agent/src/core/messages.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/messages.ts#L29):
-- `BashExecutionMessage` (line 29)
-- `CustomMessage` (line 46)
-- `BranchSummaryMessage` (line 55)
-- `CompactionSummaryMessage` (line 62)
-
-## Output Format
-
-Each line is a JSON object. The first line is the session header:
-
-```json
-{"type":"session","version":3,"id":"uuid","timestamp":"...","cwd":"/path"}
-```
-
-Followed by events as they occur:
-
-```json
-{"type":"agent_start"}
-{"type":"turn_start"}
-{"type":"message_start","message":{"role":"assistant","content":[],...}}
-{"type":"message_update","usage":{...},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Hello"}}
-{"type":"message_end","message":{...}}
-{"type":"turn_end","message":{...},"toolResults":[]}
-{"type":"agent_end","messages":[...]}
-```
-
-`message_update` records are delta-only. They omit both the cumulative `message` field and
-`assistantMessageEvent.partial` to keep stream size linear. The top-level `usage` field contains
-the latest cumulative provider-reported usage and may remain zero when a provider only reports
-usage at completion. Use `contentIndex` and `delta` to assemble live text, thinking, or tool-call
-arguments if needed. `message_end` contains the final authoritative message.
-
-## Example
-
-```bash
-pi --mode json "List files" 2>/dev/null | jq -c 'select(.type == "message_end")'
-```
+The JSONL framing and most event names are retained. Upstream provider/model and global-state examples are not Pi-Codex product configuration.

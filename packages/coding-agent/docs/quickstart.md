@@ -1,167 +1,102 @@
-# Quickstart
+# Pi-Codex Quickstart
 
-This page gets you from install to a useful first pi session.
+Pi-Codex is a Codex-subscription coding agent. Start it in the repository you want to work on:
 
-## Install
-
-Pi is distributed as an npm package:
-
-```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-```
-
-`--ignore-scripts` disables dependency lifecycle scripts during install. Pi does not require install scripts for normal npm installs.
-
-### Uninstall
-
-Use the package manager that installed pi. The curl installer uses npm globally, so curl and npm installs are removed with npm:
-
-```bash
-# curl installer or npm install -g
-npm uninstall -g @earendil-works/pi-coding-agent
-
-# pnpm
-pnpm remove -g @earendil-works/pi-coding-agent
-
-# Yarn
-yarn global remove @earendil-works/pi-coding-agent
-
-# Bun
-bun uninstall -g @earendil-works/pi-coding-agent
-```
-
-Uninstalling pi leaves settings, credentials, sessions, and installed pi packages in `~/.pi/agent/`.
-
-Then start pi in the project directory you want it to work on:
-
-```bash
-cd /path/to/project
+```sh
+cd ~/Work/my-project
 pi
 ```
 
 ## Authenticate
 
-Pi can use subscription providers through `/login`, or API-key providers through environment variables or the auth file.
+Run `/login`, choose OpenAI Codex, and complete the subscription sign-in flow. Pi-Codex stores its credentials separately from upstream Pi under `~/.pi-codex/agent/`.
 
-### Option 1: subscription login
+If Pi-Codex offers to migrate settings from Pi, it copies compatible appearance, terminal, editor, and input preferences only. Authentication, sessions, model choices, packages, and extensions remain separate.
 
-Start pi and run:
+## Choose a profile
 
-```text
-/login
-```
+Run `/model` to select three independent parts of the Codex profile:
 
-Then select a provider. Built-in subscription logins include Claude Pro/Max, ChatGPT Plus/Pro (Codex), and GitHub Copilot.
+1. **Model:** Luna, Terra, or Sol.
+2. **Context window:** 272K, 472K, or 872K.
+3. **Reasoning:** low, medium, high, xhigh, or max when supported by the selected profile.
 
-### Option 2: API key
+Luna is the default. `/scoped-models` controls the saved profiles available to model cycling; it is not a general provider catalog.
 
-Set an API key before launching pi:
+## Start a first session
 
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-pi
-```
-
-You can also run `/login` and select an API-key provider to store the key in `~/.pi/agent/auth.json`.
-
-See [Providers](providers.md) for all supported providers, environment variables, and cloud-provider setup.
-
-## First session
-
-Once pi starts, type a request and press Enter:
+Ask for a concrete task:
 
 ```text
-Summarize this repository and tell me how to run its checks.
+Read the repository instructions, explain the architecture, then fix the failing test.
 ```
 
-By default, pi gives the model four tools:
+Pi-Codex starts in **Code Mode**. The agent receives `exec` and `wait`, then composes native capabilities inside `exec` through `tools.*`: shell commands, patches, image inspection, web research, generated images, and skills. **Notebook Mode** adds a persistent Deno/TypeScript notebook through the `notebook` tool.
 
-- `read` - read files
-- `write` - create or overwrite files
-- `edit` - patch files
-- `bash` - run shell commands
+The agent may modify your working tree. Use Git or another checkpointing workflow before work you may want to undo.
 
-Additional built-in read-only tools (`grep`, `find`, `ls`) are available through tool options. Pi runs in your current working directory and can modify files there. Use git or another checkpointing workflow if you want easy rollback.
+## Give it instructions
 
-## Give pi project instructions
+Put durable repository instructions in `AGENTS.md` at the project root:
 
-Pi loads context files at startup. Add an `AGENTS.md` file to tell it how to work in a project:
+```md
+# Project instructions
 
-```markdown
-# Project Instructions
-
-- Run `npm run check` after code changes.
-- Do not run production migrations locally.
-- Keep responses concise.
+- Run the focused test before the full gate.
+- Do not change generated files directly.
+- Use the existing formatter.
 ```
 
-Pi loads:
+At startup, Pi-Codex loads:
 
-- `~/.pi/agent/AGENTS.md` for global instructions
-- `AGENTS.md` or `CLAUDE.md` from parent directories and the current directory
+- `~/.pi-codex/agent/AGENTS.md` for global instructions.
+- `<cwd>/AGENTS.md` for the current project.
 
-If a directory contains `AGENTS.override.md`, Pi loads it instead of `AGENTS.md` or `CLAUDE.md` from that directory.
+When the agent enters a deeper repository scope, native path-aware reads can discover a more-specific nested `AGENTS.md`. Keep nested instructions local to the directory they govern.
 
-Restart pi, or run `/reload`, after changing context files.
+## Add skills
 
-## Common things to try
-
-### Reference files
-
-Type `@` in the editor to fuzzy-search files, or pass files on the command line:
-
-```bash
-pi @README.md "Summarize this"
-pi @src/app.ts @src/app.test.ts "Review these together"
-```
-
-Images or text can be pasted with Ctrl+V (Alt+V on Windows); images can also be dragged into supported terminals.
-
-### Run shell commands
-
-In interactive mode:
+Global skills live in `~/.pi-codex/agent/skills/`. Project skills live in trusted `<cwd>/.pi/skills/` or `.agents/skills/` roots between the working directory and Git root.
 
 ```text
-!npm run lint
+~/.pi-codex/agent/skills/
+├── deploy/
+│   └── SKILL.md             # important: announced initially
+└── swe/
+    └── release/
+        └── SKILL.md         # lazy: available in category "swe"
 ```
 
-The command output is sent to the model. Use `!!command` to run a command without adding its output to the model context.
+Pi-Codex recognizes only canonical uppercase `SKILL.md`. Ask the agent to use `tools.skills("list")` or `tools.skills("read release")` inside `exec`. See [Skills](skills.md).
 
-### Switch models
+## Continue later
 
-Use `/model` or Ctrl+L to choose a model. Use Shift+Tab to cycle thinking level. Use Ctrl+P / Shift+Ctrl+P to cycle through scoped models.
+Sessions save automatically under `~/.pi-codex/agent/sessions/`:
 
-### Continue later
-
-Sessions are saved automatically:
-
-```bash
-pi -c                  # Continue most recent session
-pi -r                  # Browse previous sessions
-pi --name "my task"    # Set session display name at startup
-pi --session <path|id> # Open a specific session
+```sh
+pi --continue
+pi --resume
+pi --session <path-or-id>
 ```
 
-Inside pi, use `/resume`, `/new`, `/tree`, `/fork`, and `/clone` to manage sessions.
+Use `/tree` to navigate branches, `/fork` to create a branch from an earlier user message, and `/clone` to duplicate the current position.
 
-### Non-interactive mode
+## One-shot use
 
-For one-shot prompts:
+Use print mode for one request that exits afterwards:
 
-```bash
-pi -p "Summarize this codebase"
-cat README.md | pi -p "Summarize this text"
-pi -p @screenshot.png "What's in this image?"
+```sh
+pi -p "Explain the structure of this repository"
+git diff --stat | pi -p "Review this diff for regressions"
 ```
-
-Use `--mode json` for JSON event output or `--mode rpc` for process integration.
 
 ## Next steps
 
-- [Using Pi](usage.md) - interactive mode, slash commands, sessions, context files, and CLI reference.
-- [Providers](providers.md) - authentication and model setup.
-- [Settings](settings.md) - global and project configuration.
-- [Keybindings](keybindings.md) - shortcuts and customization.
-- [Pi Packages](packages.md) - install shared extensions, skills, prompts, and themes.
+- [Pi-Codex Guide](pi-codex-guide.md) for migration and all fork differences.
+- [Using Pi-Codex](usage.md) for commands and CLI use.
+- [Settings](settings.md) for execution, cache, compaction, voice, and display options.
+- [Security](security.md) before loading untrusted project resources.
 
-Platform notes: [Windows](windows.md), [Termux](termux.md), [tmux](tmux.md), [Terminal setup](terminal-setup.md), [Shell aliases](shell-aliases.md).
+## Different from upstream Pi
+
+Pi-Codex has no Normal Mode and does not present top-level `read`, `bash`, `edit`, `write`, `grep`, `find`, or `ls` as its product tools. It does not configure Anthropic, Google, OpenRouter, local models, or API keys. Existing upstream instructions that rely on those surfaces need adaptation to Code/Notebook composition and OpenAI Codex authentication.

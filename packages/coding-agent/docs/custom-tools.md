@@ -4,6 +4,10 @@ Read this only to work on custom-tool definitions, not to call them. Do not enab
 
 ## Definitions
 
+## Different from upstream Pi
+
+These are native Pi-Codex Code/Notebook tools, not upstream direct-tool replacements. They are called through `tools.<name>(...)` inside `exec`; they do not create a top-level provider tool or a separate documentation prompt section. The bundled `skills` and `more_skills` examples are optional compatibility catalogs. Native `tools.skills(...)` is the normal Pi-Codex skill mechanism.
+
 Definitions are top-level `*.toml` files in either location:
 
 - global: `~/.pi-codex/agent/custom-tools/`, or `$PI_CODING_AGENT_DIR/custom-tools/` when configured
