@@ -55,4 +55,29 @@ describe("SettingsList", () => {
 
 		assert.deepStrictEqual(changes, [{ id: "tui-mode", value: "fullscreen" }]);
 	});
+
+	it("supports fixed rows, columns, and description height", () => {
+		const list = new SettingsList(
+			[
+				{
+					id: "first",
+					label: "Short",
+					currentValue: "one",
+					description: "A long description that wraps beyond the two reserved lines in a narrow view.",
+				},
+				{ id: "second", label: "Longer label", currentValue: "two", description: "Short description." },
+			],
+			3,
+			testTheme,
+			() => {},
+			() => {},
+			{ descriptionLines: 2, fixedHeight: true, labelWidth: 16, showHint: false },
+		);
+
+		const rendered = list.render(34);
+		assert.strictEqual(rendered.length, 7);
+		assert.strictEqual(rendered[0]?.indexOf("one"), rendered[1]?.indexOf("two"));
+		assert.strictEqual(rendered[2], "");
+		assert.strictEqual(rendered[3], "");
+	});
 });

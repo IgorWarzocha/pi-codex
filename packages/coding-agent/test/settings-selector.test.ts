@@ -63,14 +63,26 @@ describe("SettingsSelectorComponent", () => {
 		expect(general).toContain("Codex");
 		expect(general).toContain("Agent behavior, tool execution, reasoning, and session navigation.");
 		expect(general).toContain("Execution mode");
-		expect(general).not.toContain("Codex Fast Mode");
+		expect(general).not.toContain("Fast mode");
 
 		selector.handleInput("\t");
 		const codex = selector.render(120).join("\n");
 		expect(selector.getActiveTabId()).toBe("codex");
 		expect(codex).toContain("OpenAI request behavior, context compaction, and prompt-cache continuity.");
-		expect(codex).toContain("Codex Fast Mode");
+		expect(codex).toContain("Fast mode");
 		expect(codex).not.toContain("Execution mode");
+	});
+
+	it("keeps the main settings frame at a stable height", () => {
+		const selector = new SettingsSelectorComponent(config(), {} as SettingsCallbacks);
+		const heights: number[] = [];
+
+		for (let index = 0; index < 6; index += 1) {
+			heights.push(selector.render(80).length);
+			selector.handleInput("\t");
+		}
+
+		expect(new Set(heights)).toEqual(new Set([18]));
 	});
 
 	it("keeps tab navigation inside an open setting submenu", () => {

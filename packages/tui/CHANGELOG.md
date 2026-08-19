@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added fixed row, label-column, description-height, and footer controls to `SettingsList`.
+
 ### Fixed
 
 - Fixed duplicate fullscreen right-click paste in VS Code-based terminals on Windows ([#8186](https://github.com/earendil-works/pi/issues/8186)).

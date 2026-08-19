@@ -556,70 +556,70 @@ export class SettingsSelectorComponent extends Container {
 			},
 			{
 				id: "codex-fast",
-				label: "Codex Fast Mode",
+				label: "Fast mode",
 				description: "Use OpenAI priority service tier",
 				currentValue: toggleValue(currentPiCodex.openai?.fast ?? false),
 				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-verbosity",
-				label: "Codex verbosity",
+				label: "Verbosity",
 				description: "Response text verbosity sent to OpenAI",
 				currentValue: currentPiCodex.openai?.verbosity ?? "low",
 				values: ["low", "medium", "high"],
 			},
 			{
 				id: "codex-compaction",
-				label: "Codex Compaction V2",
+				label: "Compaction V2",
 				description: "Use encrypted native Responses compaction and replay",
 				currentValue: toggleValue(currentPiCodex.compaction?.responsesCompaction ?? true),
 				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-cache-diagnostics",
-				label: "Codex cache diagnostics",
+				label: "Cache diagnostics",
 				description: "Show transport/cache status; logging stores safe metadata only",
 				currentValue: currentPiCodex.openai?.cacheDiagnostics ?? "off",
 				values: ["off", "status", "status-and-log"],
 			},
 			{
 				id: "codex-cache-keepalive",
-				label: "Codex cache keepalive",
+				label: "Cache keepalive",
 				description: "Refresh an idle cached WebSocket context every 25 minutes",
 				currentValue: toggleValue(currentPiCodex.openai?.cacheKeepalive ?? false),
 				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-cached-websockets",
-				label: "Codex cached WebSockets",
+				label: "Cached WebSockets",
 				description: "Keep session transport and continuation state warm",
 				currentValue: toggleValue(currentPiCodex.openai?.forceCachedWebSockets ?? true),
 				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-compaction-retention",
-				label: "Compaction user retention",
+				label: "User-message retention",
 				description: "Approximate recent user-message window retained around encrypted checkpoints",
 				currentValue: String(currentPiCodex.compaction?.v2UserMessageRetention ?? 64),
 				values: ["16", "32", "64"],
 			},
 			{
 				id: "codex-helper-model",
-				label: "Codex helper model",
+				label: "Helper model",
 				description: "Model used by web search and text image descriptions",
 				currentValue: currentPiCodex.openai?.webSearchModel ?? "gpt-5.6-luna",
 				values: [...CODEX_PROFILE_MODEL_IDS],
 			},
 			{
 				id: "codex-image-description",
-				label: "Describe images for text models",
+				label: "Text image descriptions",
 				description: "Use the Codex helper model to return plain-text image descriptions",
 				currentValue: toggleValue(currentPiCodex.viewImageFallback ?? false),
 				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-status-line",
-				label: "Codex status line",
+				label: "Status line",
 				description: "Show execution mode, native tools, cache state, and subscription usage above the editor",
 				currentValue: toggleValue(currentPiCodex.ui?.statusLine ?? true),
 				values: TOGGLE_VALUES,
@@ -640,35 +640,35 @@ export class SettingsSelectorComponent extends Container {
 			},
 			{
 				id: "codex-voice-resume",
-				label: "Resume dropped voice calls",
+				label: "Auto-resume calls",
 				description: "Reconnect only calls that were previously established",
 				currentValue: toggleValue(currentPiCodex.voice?.autoResumeRealtime ?? false),
 				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-dictation-mode",
-				label: "Dictation shortcut",
+				label: "Dictation behavior",
 				description: `${dictationShortcut}: Push records while held; toggle starts and stops on each press`,
 				currentValue: currentPiCodex.voice?.dictationShortcutMode ?? "push",
 				values: ["push", "toggle"],
 			},
 			{
 				id: "codex-voice-acknowledgements",
-				label: "Voice delegation acknowledgements",
+				label: "Delegation acknowledgement",
 				description: "Let realtime voice acknowledge delegated work while Pi runs",
 				currentValue: toggleValue(currentPiCodex.voice?.delegationAcknowledgements ?? true),
 				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-voice-reasoning",
-				label: "Speak reasoning summaries",
+				label: "Reasoning summaries",
 				description: "Use a completed reasoning summary when tool work produced no speakable text",
 				currentValue: toggleValue(currentPiCodex.voice?.forwardReasoningSummaries ?? true),
 				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-voice-context-model",
-				label: "Voice context model",
+				label: "Context model",
 				description:
 					"Optional isolated model that maintains a compact continuity summary for realtime voice without adding voice chatter to the coding turn",
 				currentValue: currentPiCodex.voice?.contextModel?.modelId ?? "off",
@@ -676,7 +676,7 @@ export class SettingsSelectorComponent extends Container {
 			},
 			{
 				id: "codex-voice-context-reasoning",
-				label: "Voice context reasoning",
+				label: "Context reasoning",
 				description: "Reasoning level for the isolated voice continuity summary",
 				currentValue: currentPiCodex.voice?.contextReasoning ?? "high",
 				values: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
@@ -1188,14 +1188,13 @@ export class SettingsSelectorComponent extends Container {
 		const tab = this.activeTab();
 		const items = this.itemsByTab.get(tab.id);
 		if (!items) throw new Error(`Settings tab has no item collection: ${tab.id}`);
-		return new SettingsList(
-			items,
-			Math.min(items.length, 9),
-			getSettingsListTheme(),
-			this.onSettingChange,
-			this.onCancel,
-			{ enableSearch: true },
-		);
+		return new SettingsList(items, 6, getSettingsListTheme(), this.onSettingChange, this.onCancel, {
+			descriptionLines: 2,
+			enableSearch: true,
+			fixedHeight: true,
+			labelWidth: 26,
+			showHint: false,
+		});
 	}
 
 	private switchTab(delta: number): void {
@@ -1215,7 +1214,7 @@ export class SettingsSelectorComponent extends Container {
 			theme.fg("muted", `  ${activeTab.description}`),
 			"",
 			...this.settingsList.render(width),
-			theme.fg("dim", "  Tab/Shift+Tab or ←/→ switch sections"),
+			theme.fg("dim", "  Type to filter · Enter change · Tab/Shift+Tab or ←/→ sections · Esc close"),
 			...this.border.render(width),
 		].map((line) => truncateToWidth(line, width, ""));
 	}

@@ -29,6 +29,14 @@ export interface SettingsListTheme {
 
 export interface SettingsListOptions {
 	enableSearch?: boolean;
+	/** Pad the item viewport and scroll indicator to a stable height. */
+	fixedHeight?: boolean;
+	/** Fixed label column width; defaults to the widest visible label. */
+	labelWidth?: number;
+	/** Reserve exactly this many selected-item description lines. */
+	descriptionLines?: number;
+	/** Render the built-in keyboard hint. */
+	showHint?: boolean;
 }
 
 export class SettingsList implements Component {
@@ -41,6 +49,10 @@ export class SettingsList implements Component {
 	private onCancel: () => void;
 	private searchInput?: Input;
 	private searchEnabled: boolean;
+	private fixedHeight: boolean;
+	private labelWidth?: number;
+	private descriptionLines?: number;
+	private showHint: boolean;
 
 	// Submenu state
 	private submenuComponent: Component | null = null;
@@ -61,6 +73,10 @@ export class SettingsList implements Component {
 		this.onChange = onChange;
 		this.onCancel = onCancel;
 		this.searchEnabled = options.enableSearch ?? false;
+		this.fixedHeight = options.fixedHeight ?? false;
+		this.labelWidth = options.labelWidth;
+		this.descriptionLines = options.descriptionLines;
+		this.showHint = options.showHint ?? true;
 		if (this.searchEnabled) {
 			this.searchInput = new Input();
 		}
@@ -101,7 +117,10 @@ export class SettingsList implements Component {
 
 		if (this.items.length === 0) {
 			lines.push(this.theme.hint("  No settings available"));
-			if (this.searchEnabled) {
+			this.padFixedList(lines, 1);
+			if (this.fixedHeight) lines.push("");
+			this.addDescription(lines, undefined, width);
+			if (this.searchEnabled && this.showHint) {
 				this.addHintLine(lines, width);
 			}
 			return lines;
@@ -110,7 +129,10 @@ export class SettingsList implements Component {
 		const displayItems = this.searchEnabled ? this.filteredItems : this.items;
 		if (displayItems.length === 0) {
 			lines.push(truncateToWidth(this.theme.hint("  No matching settings"), width));
-			this.addHintLine(lines, width);
+			this.padFixedList(lines, 1);
+			if (this.fixedHeight) lines.push("");
+			this.addDescription(lines, undefined, width);
+			if (this.showHint) this.addHintLine(lines, width);
 			return lines;
 		}
 
@@ -122,7 +144,8 @@ export class SettingsList implements Component {
 		const endIndex = Math.min(startIndex + this.maxVisible, displayItems.length);
 
 		// Calculate max label width for alignment
-		const maxLabelWidth = Math.min(30, Math.max(...this.items.map((item) => visibleWidth(item.label))));
+		const naturalLabelWidth = Math.min(30, Math.max(...this.items.map((item) => visibleWidth(item.label))));
+		const maxLabelWidth = Math.min(this.labelWidth ?? naturalLabelWidth, Math.max(1, width - 6));
 
 		// Render visible items
 		for (let i = startIndex; i < endIndex; i++) {
@@ -134,7 +157,8 @@ export class SettingsList implements Component {
 			const prefixWidth = visibleWidth(prefix);
 
 			// Pad label to align values
-			const labelPadded = item.label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(item.label)));
+			const label = truncateToWidth(item.label, maxLabelWidth, "…");
+			const labelPadded = label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(label)));
 			const labelText = this.theme.label(labelPadded, isSelected);
 
 			// Calculate space for value
@@ -146,25 +170,21 @@ export class SettingsList implements Component {
 
 			lines.push(truncateToWidth(prefix + labelText + separator + valueText, width));
 		}
+		this.padFixedList(lines, endIndex - startIndex);
 
 		// Add scroll indicator if needed
 		if (startIndex > 0 || endIndex < displayItems.length) {
 			const scrollText = `  (${this.selectedIndex + 1}/${displayItems.length})`;
 			lines.push(this.theme.hint(truncateToWidth(scrollText, width - 2, "")));
+		} else if (this.fixedHeight) {
+			lines.push("");
 		}
 
-		// Add description for selected item
 		const selectedItem = displayItems[this.selectedIndex];
-		if (selectedItem?.description) {
-			lines.push("");
-			const wrappedDesc = wrapTextWithAnsi(selectedItem.description, width - 4);
-			for (const line of wrappedDesc) {
-				lines.push(this.theme.description(`  ${line}`));
-			}
-		}
+		this.addDescription(lines, selectedItem, width);
 
 		// Add hint
-		this.addHintLine(lines, width);
+		if (this.showHint) this.addHintLine(lines, width);
 
 		return lines;
 	}
@@ -235,6 +255,35 @@ export class SettingsList implements Component {
 	private applyFilter(query: string): void {
 		this.filteredItems = fuzzyFilter(this.items, query, (item) => item.label);
 		this.selectedIndex = 0;
+	}
+
+	private padFixedList(lines: string[], renderedItems: number): void {
+		if (!this.fixedHeight) return;
+		for (let index = renderedItems; index < this.maxVisible; index += 1) lines.push("");
+	}
+
+	private addDescription(lines: string[], item: SettingItem | undefined, width: number): void {
+		if (this.descriptionLines === undefined) {
+			if (!item?.description) return;
+			lines.push("");
+			for (const line of wrapTextWithAnsi(item.description, width - 4)) {
+				lines.push(this.theme.description(`  ${line}`));
+			}
+			return;
+		}
+
+		lines.push("");
+		const descriptionWidth = Math.max(1, width - 4);
+		const wrapped = item?.description ? wrapTextWithAnsi(item.description, descriptionWidth) : [];
+		for (let index = 0; index < this.descriptionLines; index += 1) {
+			const line = wrapped[index];
+			if (line === undefined) {
+				lines.push("");
+				continue;
+			}
+			const suffix = index === this.descriptionLines - 1 && wrapped.length > this.descriptionLines ? "…" : "";
+			lines.push(this.theme.description(`  ${truncateToWidth(`${line}${suffix}`, descriptionWidth, "…")}`));
+		}
 	}
 
 	private addHintLine(lines: string[], width: number): void {

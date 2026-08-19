@@ -21,7 +21,7 @@
 
 ### Changed
 
-- Reworked `/settings` into guided General, Codex, Voice, Display, Terminal, and Advanced tabs, including native Codex status and voice-context controls.
+- Reworked `/settings` into guided General, Codex, Voice, Display, Terminal, and Advanced tabs with stable pagination, descriptions, columns, and native Codex controls.
 - Tree-navigation summaries now run as hidden developer turns over the exact active provider context and settings, then return as visible, non-triggering developer context after the jump. This preserves the pre-jump cache lane and retains structured tool output instead of issuing cold, aggressively serialized summary requests.
 - Pi-Codex now builds its compact system prompt directly from runtime guidance, project instructions, skills, shell context, and the working directory instead of constructing and rewriting Pi's stock prompt before each turn.
 - Pi-Codex background-shell settings now propagate through an explicit runtime notification instead of polling from `before_agent_start`.
