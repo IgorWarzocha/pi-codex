@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
-import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, fauxToolCall, registerFauxProvider, streamSimple } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -68,6 +68,7 @@ describe("AgentSessionRuntime characterization", () => {
 							baseUrl: faux.getModel().baseUrl,
 							apiKey: "faux-key",
 							api: faux.api,
+							streamSimple,
 							models: faux.models.map((registeredModel) => ({
 								id: registeredModel.id,
 								name: registeredModel.name,
@@ -420,6 +421,7 @@ describe("AgentSessionRuntime characterization", () => {
 							baseUrl: faux.getModel().baseUrl,
 							apiKey: "faux-key",
 							api: faux.api,
+							streamSimple,
 							models: faux.models.map((registeredModel) => ({
 								id: registeredModel.id,
 								name: registeredModel.name,
@@ -529,6 +531,7 @@ describe("AgentSessionRuntime characterization", () => {
 							baseUrl: faux.getModel().baseUrl,
 							apiKey: "faux-key",
 							api: faux.api,
+							streamSimple,
 							models: faux.models.map((registeredModel) => ({
 								id: registeredModel.id,
 								name: registeredModel.name,
@@ -602,6 +605,7 @@ describe("AgentSessionRuntime characterization", () => {
 							baseUrl: faux.getModel().baseUrl,
 							apiKey: "faux-key",
 							api: faux.api,
+							streamSimple,
 							models: faux.models.map((registeredModel) => ({
 								id: registeredModel.id,
 								name: registeredModel.name,

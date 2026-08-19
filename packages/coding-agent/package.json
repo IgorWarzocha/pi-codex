@@ -1,7 +1,7 @@
 {
 	"name": "@earendil-works/pi-coding-agent",
 	"version": "0.84.2",
-	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
+	"description": "Opinionated Codex TUI with native tools, Code Mode, Notebook Mode, and voice",
 	"type": "module",
 	"piConfig": {
 		"configDir": ".pi"
@@ -30,9 +30,6 @@
 	},
 	"files": [
 		"dist",
-		"docs",
-		"examples",
-		"containerization.md",
 		"CHANGELOG.md",
 		"npm-shrinkwrap.json",
 		"code-mode/UPSTREAM_SYNC.md",
@@ -50,7 +47,7 @@
 		"copy-assets": "shx mkdir -p dist/modes/interactive/theme && shx cp src/modes/interactive/theme/*.json dist/modes/interactive/theme/ && shx mkdir -p dist/modes/interactive/assets && shx cp src/modes/interactive/assets/*.png dist/modes/interactive/assets/ && shx mkdir -p dist/core/export-html/vendor && shx cp src/core/export-html/template.html src/core/export-html/template.css src/core/export-html/template.js dist/core/export-html/ && shx cp src/core/export-html/vendor/*.js dist/core/export-html/vendor/ && shx mkdir -p dist/shell && shx cp src/shell/tree-sitter-bash.wasm dist/shell/ && shx mkdir -p dist/tools/code-mode && shx cp src/tools/code-mode/CUSTOM-TOOLS.md dist/tools/code-mode/ && npm run copy-tool-binaries && npm run copy-voice-assets",
 		"copy-voice-assets": "node scripts/copy-voice-assets.mjs",
 		"copy-tool-binaries": "shx mkdir -p dist/tools/apply-patch dist/tools/exec dist/tools/view-image dist/tools/web-run dist/tools/imagegen && shx cp -r src/tools/apply-patch/bin dist/tools/apply-patch/ && shx cp -r src/tools/exec/bin dist/tools/exec/ && shx cp -r src/tools/view-image/bin dist/tools/view-image/ && shx cp -r src/tools/web-run/bin dist/tools/web-run/ && shx cp -r src/tools/imagegen/bin dist/tools/imagegen/",
-		"copy-binary-assets": "shx cp package.json dist/ && shx cp README.md dist/ && shx cp CHANGELOG.md dist/ && shx mkdir -p dist/theme && shx cp src/modes/interactive/theme/*.json dist/theme/ && shx mkdir -p dist/assets && shx cp src/modes/interactive/assets/*.png dist/assets/ && shx mkdir -p dist/export-html/vendor && shx cp src/core/export-html/template.html dist/export-html/ && shx cp src/core/export-html/vendor/*.js dist/export-html/vendor/ && shx cp -r docs dist/ && shx cp -r examples dist/ && shx cp ../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm dist/ && node scripts/copy-codex-runtime-assets.mjs dist",
+		"copy-binary-assets": "shx cp package.json dist/ && shx cp README.md dist/ && shx cp CHANGELOG.md dist/ && shx mkdir -p dist/theme && shx cp src/modes/interactive/theme/*.json dist/theme/ && shx mkdir -p dist/assets && shx cp src/modes/interactive/assets/*.png dist/assets/ && shx mkdir -p dist/export-html/vendor && shx cp src/core/export-html/template.html dist/export-html/ && shx cp src/core/export-html/vendor/*.js dist/export-html/vendor/ && shx cp ../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm dist/ && node scripts/copy-codex-runtime-assets.mjs dist",
 		"build:code-mode-host": "node scripts/code-mode/build-host.mjs",
 		"build:voice-helper": "node scripts/build-voice-helper.mjs",
 		"verify:code-mode-host-assets": "node scripts/code-mode/verify-host-assets.mjs",

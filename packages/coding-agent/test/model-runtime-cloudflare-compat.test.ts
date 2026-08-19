@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
+import { allBuiltinProviderOptions } from "./model-runtime-test-utils.ts";
 
 const openAIState = vi.hoisted(() => ({ clientOptions: undefined as unknown }));
 
@@ -52,7 +53,11 @@ async function createCloudflareRuntime(): Promise<{ modelRuntime: ModelRuntime; 
 			CLOUDFLARE_GATEWAY_ID: "test-gateway",
 		},
 	}));
-	const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+	const modelRuntime = await ModelRuntime.create({
+		...allBuiltinProviderOptions(),
+		credentials: authStorage,
+		modelsPath: null,
+	});
 	return { modelRuntime, modelRegistry: new ModelRegistry(modelRuntime) };
 }
 

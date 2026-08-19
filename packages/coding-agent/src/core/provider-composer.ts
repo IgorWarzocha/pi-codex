@@ -19,7 +19,6 @@ import {
 	type SimpleStreamOptions,
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
-import { getApiProvider } from "@earendil-works/pi-ai/compat";
 import type { ModelConfig, ModelsJsonModel, ModelsJsonModelOverride, ModelsJsonProvider } from "./model-config.ts";
 import {
 	clearConfigValueCache,
@@ -466,11 +465,7 @@ export function composeModelProvider(
 					? base.streamSimple(model, context, options as SimpleStreamOptions)
 					: base.stream(model, context, options);
 			}
-			const api = getApiProvider(model.api);
-			if (!api) throw new Error(`No API provider registered for api: ${model.api}`);
-			return simple
-				? api.streamSimple(model, context, options as SimpleStreamOptions)
-				: api.stream(model, context, options);
+			throw new Error(`Provider ${providerId} does not supply a stream for api: ${model.api}`);
 		});
 
 	const provider: Provider = {

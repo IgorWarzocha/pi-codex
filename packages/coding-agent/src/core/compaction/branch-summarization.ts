@@ -6,9 +6,14 @@
  */
 
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
-import type { RetryCallbacks, RetryPolicy } from "@earendil-works/pi-ai";
-import { contentText } from "@earendil-works/pi-ai";
-import type { Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
+import {
+	contentText,
+	type Model,
+	type RetryCallbacks,
+	type RetryPolicy,
+	type SimpleStreamOptions,
+	type Usage,
+} from "@earendil-works/pi-ai";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,

@@ -18,7 +18,7 @@ import { AgentSession, type AgentSessionEvent } from "../src/core/agent-session.
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { createCodingTools } from "../src/index.ts";
+import { createCodingTools } from "../src/core/tools/index.ts";
 import { API_KEY, createTestResourceLoader } from "./utilities.ts";
 
 describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {

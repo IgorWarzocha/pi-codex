@@ -121,24 +121,23 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	const modelRegistry = modelsPath
 		? await createModelRegistry(authStorage, modelsPath)
 		: await createInMemoryModelRegistry(authStorage);
-	if (withConfiguredAuth) {
-		modelRegistry.registerProvider(model.provider, {
-			baseUrl: model.baseUrl,
-			apiKey: "faux-key",
-			api: fauxProvider.api,
-			models: fauxProvider.models.map((registeredModel) => ({
-				id: registeredModel.id,
-				name: registeredModel.name,
-				api: registeredModel.api,
-				reasoning: registeredModel.reasoning,
-				input: registeredModel.input,
-				cost: registeredModel.cost,
-				contextWindow: registeredModel.contextWindow,
-				maxTokens: registeredModel.maxTokens,
-				baseUrl: registeredModel.baseUrl,
-			})),
-		});
-	}
+	modelRegistry.registerProvider(model.provider, {
+		baseUrl: model.baseUrl,
+		apiKey: withConfiguredAuth ? "faux-key" : "$PI_TEST_MISSING_API_KEY",
+		api: fauxProvider.api,
+		streamSimple,
+		models: fauxProvider.models.map((registeredModel) => ({
+			id: registeredModel.id,
+			name: registeredModel.name,
+			api: registeredModel.api,
+			reasoning: registeredModel.reasoning,
+			input: registeredModel.input,
+			cost: registeredModel.cost,
+			contextWindow: registeredModel.contextWindow,
+			maxTokens: registeredModel.maxTokens,
+			baseUrl: registeredModel.baseUrl,
+		})),
+	});
 
 	const agent = new Agent({
 		getApiKey: () => (withConfiguredAuth ? "faux-key" : undefined),

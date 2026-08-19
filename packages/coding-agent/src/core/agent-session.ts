@@ -24,28 +24,23 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
-import { contentText } from "@earendil-works/pi-ai";
-import type {
-	AssistantMessage,
-	AuthResult,
-	ImageContent,
-	Model,
-	ProviderHeaders,
-	TextContent,
-	Usage,
-} from "@earendil-works/pi-ai/compat";
 import {
+	type AssistantMessage,
 	clampThinkingLevel,
 	cleanupSessionResources,
+	contentText,
 	getSupportedThinkingLevels,
+	type ImageContent,
 	isContextOverflow,
 	isRecoverableLength,
 	isRetryableAssistantError,
+	type Model,
 	modelsAreEqual,
+	type ProviderHeaders,
 	type RetryCallbacks,
-	resetApiProviders,
-	streamSimple,
-} from "@earendil-works/pi-ai/compat";
+	type TextContent,
+	type Usage,
+} from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { appendNotebookTreeEpoch } from "../tools/code-mode/notebook-session.ts";
@@ -439,53 +434,12 @@ export class AgentSession {
 		return this._modelRuntime;
 	}
 
-	private async _getRequiredRequestAuth(model: Model<any>): Promise<{
-		model: Model<any>;
-		apiKey?: string;
-		headers?: Record<string, string>;
-		env?: Record<string, string>;
-	}> {
-		let result: AuthResult | undefined;
-		try {
-			result = await this._modelRuntime.getAuth(model);
-		} catch (error) {
-			const cause = error instanceof Error ? error.cause : undefined;
-			if (cause instanceof Error && cause.message === "authHeader requires a resolved API key") {
-				throw new Error(formatNoApiKeyFoundMessage(model.provider));
-			}
-			throw error;
-		}
-		if (result && (result.auth.apiKey || result.auth.headers)) {
-			const requestModel = result.auth.baseUrl ? { ...model, baseUrl: result.auth.baseUrl } : model;
-			return {
-				model: requestModel,
-				apiKey: result.auth.apiKey,
-				headers: withoutDeletedHeaders(result.auth.headers),
-				env: result.env,
-			};
-		}
-
-		const isOAuth = this._modelRuntime.isUsingOAuth(model.provider);
-		if (isOAuth) {
-			throw new Error(
-				`Authentication failed for "${model.provider}". ` +
-					`Credentials may have expired or network is unavailable. ` +
-					`Run '/login ${model.provider}' to re-authenticate.`,
-			);
-		}
-		throw new Error(formatNoApiKeyFoundMessage(model.provider));
-	}
-
 	private async _getSummarizationRequestAuth(model: Model<any>): Promise<{
 		model: Model<any>;
 		apiKey?: string;
 		headers?: Record<string, string>;
 		env?: Record<string, string>;
 	}> {
-		if (this.agent.streamFunction === streamSimple) {
-			return this._getRequiredRequestAuth(model);
-		}
-
 		try {
 			const result = await this._modelRuntime.getAuth(model);
 			if (!result) return { model };
@@ -2821,7 +2775,6 @@ export class AgentSession {
 		oldRunner.invalidate();
 		await this.settingsManager.reload();
 		this.syncQueueModesFromSettings();
-		resetApiProviders();
 		await this._resourceLoader.reload();
 		this._buildRuntime({
 			activeToolNames: this.getActiveToolNames(),

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { registerFauxProvider, streamSimple } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CreateAgentSessionRuntimeFactory,
@@ -51,6 +51,7 @@ describe("issue #2753 reload stale resource settings", () => {
 								baseUrl: faux.getModel().baseUrl,
 								apiKey: "faux-key",
 								api: faux.api,
+								streamSimple,
 								models: faux.models.map((registeredModel) => ({
 									id: registeredModel.id,
 									name: registeredModel.name,

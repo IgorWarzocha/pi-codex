@@ -6,6 +6,7 @@
 
 - Replaced the stock `read`, `bash`, `edit`, `write`, `grep`, `find`, and `ls` runtime with the native Pi-Codex `exec_command`, `write_stdin`, `apply_patch`, `view_image`, `web_run`, and `imagegen` tool surface. The obsolete `defaultTools` setting is no longer used.
 - Responses Lite-capable Pi-Codex models now default to Code Mode, exposing `exec` and `wait` while keeping native tools available only inside the restricted JavaScript runtime. Set `executionMode` to `normal` to retain the flat tool surface.
+- Pi-Codex now bundles only the OpenAI Codex provider and native product extension. Stock provider compatibility barrels, legacy tool factory exports, and automatic API fallback for configured providers are no longer part of the product runtime.
 
 ### Added
 
@@ -18,20 +19,20 @@
 
 - Pi-Codex now builds its compact system prompt directly from runtime guidance, project instructions, skills, shell context, and the working directory instead of constructing and rewriting Pi's stock prompt before each turn.
 
+### Removed
+
+- Removed the bundled llama.cpp provider and excluded examples, container documentation, the experimental server, and the SQLite session backend from product artifacts and releases.
+
 ### Fixed
 
 - Fixed transient Notebook startup failures when another local process claims a reserved Jupyter port before the kernel binds it.
 - Fixed the subagent example repeatedly prompting before running project-local agents in trusted repositories ([#8261](https://github.com/earendil-works/pi/issues/8261)).
 - Added `session_compact_failed` extension events so compaction failures and aborts expose their reason, retry state, source, and error message to handlers ([#8175](https://github.com/earendil-works/pi/issues/8175)).
 - Fixed npm package update checks treating older registry versions as available updates, preventing `pi update` from downgrading already-newer installed packages ([#8226](https://github.com/earendil-works/pi/issues/8226)).
-- Fixed built-in llama.cpp models disappearing from `/model` when `/llama` refreshed a configured server under `PI_OFFLINE`, and included idle-slept `sleeping` router models in the selectable catalog ([#8167](https://github.com/earendil-works/pi/issues/8167)).
 - Fixed `pi.registerFlag()` accepting default values that do not match the declared flag type ([#8064](https://github.com/earendil-works/pi/issues/8064)).
-- Fixed Z.AI Coding Plan defaults referencing the removed GLM-5.1 model ([#8096](https://github.com/earendil-works/pi/issues/8096)).
 - Fixed repeated ambiguous truncated-response recovery being mislabeled as context overflow ([#8130](https://github.com/earendil-works/pi/issues/8130)).
 - Fixed duplicate fullscreen right-click paste in VS Code-based terminals on Windows ([#8186](https://github.com/earendil-works/pi/issues/8186)).
-- Fixed llama.cpp login guidance to direct users to `/llama` before `/model` when no local models are loaded ([#8203](https://github.com/earendil-works/pi/issues/8203)).
 - Fixed hung pi.dev model catalog requests consuming the entire refresh deadline without retrying ([#8198](https://github.com/earendil-works/pi/issues/8198)).
-- Fixed inherited Xiaomi model catalogs listing shut-down MiMo V2 models in `/model` and `--list-models` ([#8187](https://github.com/earendil-works/pi/issues/8187)).
 
 ## [0.84.2] - 2026-08-14
 

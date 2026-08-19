@@ -13,11 +13,11 @@ const { completeSimpleMock } = vi.hoisted(() => ({
 	completeSimpleMock: vi.fn(),
 }));
 
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@earendil-works/pi-ai/compat")>();
+vi.mock("../src/product/providers.ts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/product/providers.ts")>();
 	return {
 		...actual,
-		completeSimple: completeSimpleMock,
+		completeProductModel: completeSimpleMock,
 	};
 });
 

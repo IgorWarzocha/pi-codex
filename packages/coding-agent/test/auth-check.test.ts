@@ -8,11 +8,13 @@ import { checkProviderAuth, createAuthCheckModelRuntime, getProviderCredential }
 import { parseAuthCommand } from "../src/cli/auth-command.ts";
 import { AuthStorage, ReadOnlyAuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
+import { allBuiltinProviderOptions } from "./model-runtime-test-utils.ts";
 
 const tempDir = join(tmpdir(), `pi-test-auth-check-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 async function createRuntime(credentials: AuthStorage | ReadOnlyAuthStorage): Promise<ModelRuntime> {
 	return ModelRuntime.create({
+		...allBuiltinProviderOptions(),
 		credentials,
 		modelsPath: null,
 		modelsStore: new InMemoryModelsStore(),
@@ -166,6 +168,6 @@ describe("auth check command", () => {
 
 	test("creates an auth-check runtime without catalog storage", async () => {
 		const runtime = await createAuthCheckModelRuntime(AuthStorage.inMemory());
-		expect(runtime.getProvider("openai")).toBeDefined();
+		expect(runtime.getProvider("openai-codex")).toBeDefined();
 	});
 });

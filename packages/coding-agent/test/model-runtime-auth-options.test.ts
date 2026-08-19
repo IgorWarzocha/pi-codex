@@ -2,6 +2,7 @@ import { type AuthType, type CredentialStore, InMemoryCredentialStore } from "@e
 import { describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
+import { allBuiltinProviderOptions } from "./model-runtime-test-utils.ts";
 
 function authOptions(runtime: ModelRuntime, type?: AuthType) {
 	return runtime
@@ -36,7 +37,7 @@ describe("ModelRuntime auth options", () => {
 	it("accepts a pi-ai CredentialStore", async () => {
 		const credentials = new InMemoryCredentialStore();
 		await credentials.modify("anthropic", async () => ({ type: "api_key", key: "stored-key" }));
-		const runtime = await ModelRuntime.create({ credentials, modelsPath: null });
+		const runtime = await ModelRuntime.create({ ...allBuiltinProviderOptions(), credentials, modelsPath: null });
 
 		expect((await runtime.getAuth("anthropic"))?.auth.apiKey).toBe("stored-key");
 	});
@@ -55,7 +56,7 @@ describe("ModelRuntime auth options", () => {
 			modify: (providerId, fn) => base.modify(providerId, fn),
 			delete: (providerId) => base.delete(providerId),
 		};
-		const runtime = await ModelRuntime.create({ credentials, modelsPath: null });
+		const runtime = await ModelRuntime.create({ ...allBuiltinProviderOptions(), credentials, modelsPath: null });
 
 		reads.length = 0;
 		await runtime.getAvailable("anthropic");
@@ -71,7 +72,11 @@ describe("ModelRuntime auth options", () => {
 	});
 
 	it("projects provider-owned methods, names, and status", async () => {
-		const runtime = await ModelRuntime.create({ credentials: AuthStorage.inMemory(), modelsPath: null });
+		const runtime = await ModelRuntime.create({
+			...allBuiltinProviderOptions(),
+			credentials: AuthStorage.inMemory(),
+			modelsPath: null,
+		});
 		const options = authOptions(runtime);
 
 		expect(options).toEqual(
@@ -107,6 +112,7 @@ describe("ModelRuntime auth options", () => {
 
 	it("attaches the provider's active auth status to every method option", async () => {
 		const runtime = await ModelRuntime.create({
+			...allBuiltinProviderOptions(),
 			credentials: AuthStorage.inMemory({
 				anthropic: {
 					type: "oauth",
@@ -125,6 +131,7 @@ describe("ModelRuntime auth options", () => {
 
 	it("distinguishes subscription OAuth from generic OAuth sign-in", async () => {
 		const runtime = await ModelRuntime.create({
+			...allBuiltinProviderOptions(),
 			credentials: AuthStorage.inMemory({
 				anthropic: {
 					type: "oauth",

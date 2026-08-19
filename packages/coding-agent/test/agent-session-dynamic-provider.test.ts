@@ -11,6 +11,7 @@ import type { ExtensionFactory } from "../src/core/sdk.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { allBuiltinProviderOptions } from "./model-runtime-test-utils.ts";
 
 function nativeAnthropicProvider(baseUrl: string): Provider {
 	const model = { ...getModel("anthropic", "claude-sonnet-4-5")!, baseUrl };
@@ -56,6 +57,7 @@ describe("AgentSession dynamic provider registration", () => {
 		const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 		await authStorage.modify("anthropic", async () => ({ type: "api_key", key: "test-key" }));
 		const modelRuntime = await ModelRuntime.create({
+			...allBuiltinProviderOptions(),
 			credentials: authStorage,
 			modelsPath: join(agentDir, "models.json"),
 		});

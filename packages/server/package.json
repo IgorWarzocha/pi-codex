@@ -1,5 +1,6 @@
 {
 	"name": "@earendil-works/pi-server",
+	"private": true,
 	"version": "0.84.2",
 	"description": "experimental server package for pi",
 	"type": "module",

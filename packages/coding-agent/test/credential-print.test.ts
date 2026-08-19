@@ -6,9 +6,11 @@ import { resolveCredentialForPrint } from "../src/cli/credential-print.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { main } from "../src/main.ts";
+import { allBuiltinProviderOptions } from "./model-runtime-test-utils.ts";
 
 async function createRuntime(credentials: AuthStorage): Promise<ModelRuntime> {
 	return ModelRuntime.create({
+		...allBuiltinProviderOptions(),
 		credentials,
 		modelsPath: null,
 		modelsStore: new InMemoryModelsStore(),

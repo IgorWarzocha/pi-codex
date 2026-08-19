@@ -8,8 +8,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import type { AssistantMessage, ImageContent, Message, Model, Usage } from "@earendil-works/pi-ai/compat";
+import type {
+	AssistantMessage,
+	AuthEvent,
+	AuthPrompt,
+	ImageContent,
+	Message,
+	Model,
+	Usage,
+} from "@earendil-works/pi-ai";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -265,12 +272,6 @@ export function formatResumeCommand(sessionManager: SessionManager): string | un
 
 function hasDefaultModelProvider(providerId: string): providerId is keyof typeof defaultModelPerProvider {
 	return providerId in defaultModelPerProvider;
-}
-
-function llamaCppPostLoginGuidance(actionLabel: string, loadedModelCount: number): string {
-	return loadedModelCount === 0
-		? `${actionLabel}. No llama.cpp models are loaded. Use /llama to load a model, then /model to select it.`
-		: `${actionLabel}. Use /model to select a loaded llama.cpp model, or /llama to manage models.`;
 }
 
 type LoginProviderCompletionOption = {
@@ -5532,10 +5533,7 @@ export class InteractiveMode {
 		if (isUnknownModel(previousModel)) {
 			const availableModels = this.session.modelRuntime.getAvailableSnapshot();
 			const providerModels = availableModels.filter((model) => model.provider === providerId);
-			// Matches LLAMA_PROVIDER_ID from extensions/llama/provider.ts; kept inline to avoid coupling interactive mode to the built-in extension.
-			if (providerId === "llama.cpp") {
-				selectionError = llamaCppPostLoginGuidance(actionLabel, providerModels.length);
-			} else if (!hasDefaultModelProvider(providerId)) {
+			if (!hasDefaultModelProvider(providerId)) {
 				selectionError = `${actionLabel}, but no default model is configured for provider "${providerId}". Use /model to select a model.`;
 			} else if (providerModels.length === 0) {
 				selectionError = `${actionLabel}, but no models are available for that provider. Use /model to select a model.`;

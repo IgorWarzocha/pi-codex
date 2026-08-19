@@ -7,15 +7,19 @@
 
 import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
+	type AssistantMessage,
+	type Context,
 	contentText,
 	estimateContextTokens as estimateProviderContextTokens,
+	type Model,
 	type RetryCallbacks,
 	type RetryPolicy,
 	retryAssistantCall,
+	type SimpleStreamOptions,
+	type Usage,
 	uuidv7,
 } from "@earendil-works/pi-ai";
-import type { AssistantMessage, Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
+import { completeProductModel } from "../../product/providers.ts";
 import { convertToLlm } from "../messages.ts";
 import {
 	buildSessionContext,
@@ -653,7 +657,7 @@ export async function completeSummarization(
 	const produce = async (): Promise<AssistantMessage> =>
 		streamFn
 			? (await streamFn(model, context, requestOptions)).result()
-			: completeSimple(model, context, requestOptions);
+			: completeProductModel(model, context, requestOptions);
 	return retryAssistantCall(produce, retry, requestOptions.signal, callbacks);
 }
 

@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ProviderHeaders } from "@earendil-works/pi-ai";
-import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
+import { clampThinkingLevel, type Message, type Model, type ProviderHeaders } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
+import { streamProductModel } from "../product/providers.ts";
 import {
 	CODE_MODE_TOOL_NAMES,
 	NORMAL_CODEX_TOOL_NAMES,
@@ -23,23 +23,9 @@ import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
 import { time } from "./timings.ts";
-import {
-	createBashTool,
-	createCodingTools,
-	createEditTool,
-	createFindTool,
-	createGrepTool,
-	createLsTool,
-	createReadOnlyTools,
-	createReadTool,
-	createWriteTool,
-	withFileMutationQueue,
-} from "./tools/index.ts";
 
-// Preserve the pre-0.81 fallback for extensions that construct Agent instances
-// or invoke low-level agent loops without supplying streamFn. Agent core remains
-// provider-agnostic and does not import pi-ai/compat itself.
-setDefaultStreamFn(streamSimple);
+// Low-level Agent instances created by extensions inherit the Pi-Codex provider.
+setDefaultStreamFn(streamProductModel);
 
 export interface CreateAgentSessionOptions {
 	/** Working directory for project-local discovery. Default: process.cwd() */
@@ -115,21 +101,6 @@ export type {
 } from "./extensions/index.ts";
 export type { PromptTemplate } from "./prompt-templates.ts";
 export type { Skill } from "./skills.ts";
-export type { Tool } from "./tools/index.ts";
-
-export {
-	withFileMutationQueue,
-	// Tool factories (for custom cwd)
-	createCodingTools,
-	createReadOnlyTools,
-	createReadTool,
-	createBashTool,
-	createEditTool,
-	createWriteTool,
-	createGrepTool,
-	createFindTool,
-	createLsTool,
-};
 
 // Helper Functions
 

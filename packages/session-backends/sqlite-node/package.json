@@ -1,5 +1,6 @@
 {
 	"name": "@earendil-works/pi-session-backend-sqlite-node",
+	"private": true,
 	"version": "0.84.2",
 	"description": "Node sqlite session backend for @earendil-works/pi-agent-core sessions",
 	"type": "module",

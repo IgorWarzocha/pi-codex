@@ -1,9 +1,17 @@
 import type { CredentialStore } from "@earendil-works/pi-ai";
+import { builtinProviders, getBuiltinModelDataGeneratedAt } from "@earendil-works/pi-ai/providers/all";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { InMemoryCodingAgentModelsStore } from "../src/core/models-store.ts";
 
 const runtimes = new WeakMap<ModelRegistry, ModelRuntime>();
+
+export function allBuiltinProviderOptions() {
+	return {
+		builtinProviders: builtinProviders(),
+		builtinModelDataGeneratedAt: getBuiltinModelDataGeneratedAt(),
+	};
+}
 
 function wrap(runtime: ModelRuntime): ModelRegistry {
 	const registry = new ModelRegistry(runtime);
@@ -15,6 +23,7 @@ function wrap(runtime: ModelRuntime): ModelRegistry {
 export async function createModelRegistry(credentials: CredentialStore, modelsPath?: string): Promise<ModelRegistry> {
 	return wrap(
 		await ModelRuntime.create({
+			...allBuiltinProviderOptions(),
 			credentials,
 			modelsPath,
 			modelsStore: new InMemoryCodingAgentModelsStore(),
@@ -24,7 +33,14 @@ export async function createModelRegistry(credentials: CredentialStore, modelsPa
 }
 
 export async function createInMemoryModelRegistry(credentials: CredentialStore): Promise<ModelRegistry> {
-	return wrap(await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false }));
+	return wrap(
+		await ModelRuntime.create({
+			...allBuiltinProviderOptions(),
+			credentials,
+			modelsPath: null,
+			allowModelNetwork: false,
+		}),
+	);
 }
 
 export function getModelRuntime(modelRegistry: ModelRegistry): ModelRuntime {
