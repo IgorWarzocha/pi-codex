@@ -170,6 +170,9 @@ describe("ModelRuntime auth options", () => {
 			baseUrl: "https://example.test/v1",
 			apiKey: "$EXTENSION_TEST_API_KEY",
 			api: "openai-completions",
+			streamSimple: () => {
+				throw new Error("unused");
+			},
 			models: [testModel("extension-model")],
 		});
 
@@ -190,6 +193,9 @@ describe("ModelRuntime auth options", () => {
 			apiKey: "$REQUEST_SCOPED_API_KEY",
 			headers: { "x-request-value": "$REQUEST_SCOPED_HEADER" },
 			api: "openai-completions",
+			streamSimple: () => {
+				throw new Error("unused");
+			},
 			models: [testModel("request-env-model")],
 		});
 
@@ -285,6 +291,9 @@ describe("ModelRuntime auth options", () => {
 			name: "Extension OAuth",
 			baseUrl: "https://example.test/v1",
 			api: "openai-completions",
+			streamSimple: () => {
+				throw new Error("unused");
+			},
 			oauth: {
 				name: "Extension subscription",
 				login: async () => ({ access: "access", refresh: "refresh", expires: Date.now() + 60_000 }),
@@ -312,6 +321,9 @@ describe("ModelRuntime auth options", () => {
 			name: "Extension OAuth",
 			baseUrl: "https://example.test/v1",
 			api: "openai-completions",
+			streamSimple: () => {
+				throw new Error("unused");
+			},
 			oauth: {
 				name: "Extension subscription",
 				isSubscription: true,

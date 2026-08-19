@@ -233,6 +233,21 @@ function applyExtension(
 	});
 }
 
+function assertProviderStreams(
+	providerId: string,
+	models: readonly Model<Api>[],
+	base: Provider | undefined,
+	extension: ProviderConfigInput | undefined,
+): void {
+	const baseApis = new Set(base?.getModels().map((model) => model.api));
+	for (const model of models) {
+		if ((extension?.streamSimple && extension.api === model.api) || baseApis.has(model.api)) continue;
+		throw new Error(
+			`Provider ${providerId} cannot stream api "${model.api}". Register a native provider or provide streamSimple with that api.`,
+		);
+	}
+}
+
 function adaptOAuth(config: ExtensionOAuthConfig): OAuthAuth {
 	return {
 		name: config.name,
@@ -412,7 +427,12 @@ export function validateExtensionProvider(
 	if (extension.streamSimple && !extension.api) {
 		throw new Error(`Provider ${providerId}: "api" is required when registering streamSimple.`);
 	}
-	applyExtension(providerId, applyModelsJson(providerId, base?.getModels() ?? [], modelsConfig), extension);
+	const models = applyExtension(
+		providerId,
+		applyModelsJson(providerId, base?.getModels() ?? [], modelsConfig),
+		extension,
+	);
+	assertProviderStreams(providerId, models, base, extension);
 }
 
 /** Compose built-in, models.json, and extension layers without reading credentials. */
@@ -444,7 +464,7 @@ export function composeModelProvider(
 		});
 	};
 	// Validate eagerly so registration/reload reports structural errors immediately.
-	getModels();
+	assertProviderStreams(providerId, getModels(), base, extension);
 	const apiKey = composeApiKeyAuth(providerId, base, config, extension);
 	const oauth = composeOAuthAuth(providerId, base, config, extension);
 	if (!apiKey && !oauth) throw new Error(`Provider ${providerId}: no authentication method configured.`);
@@ -465,7 +485,9 @@ export function composeModelProvider(
 					? base.streamSimple(model, context, options as SimpleStreamOptions)
 					: base.stream(model, context, options);
 			}
-			throw new Error(`Provider ${providerId} does not supply a stream for api: ${model.api}`);
+			throw new Error(
+				`Provider ${providerId} cannot stream api "${model.api}". Register a native provider or provide streamSimple with that api.`,
+			);
 		});
 
 	const provider: Provider = {
@@ -487,10 +509,15 @@ export function composeModelProvider(
 							update: () => {
 								if (refreshed) {
 									// Validate before publishing the new synchronous list.
-									applyExtension(providerId, applyModelsJson(providerId, base?.getModels() ?? [], config), {
-										...extension,
-										models: refreshed,
-									});
+									const models = applyExtension(
+										providerId,
+										applyModelsJson(providerId, base?.getModels() ?? [], config),
+										{
+											...extension,
+											models: refreshed,
+										},
+									);
+									assertProviderStreams(providerId, models, base, extension);
 									refreshedExtensionModels = refreshed;
 								}
 								extensionOAuthCredential = oauthCredential;

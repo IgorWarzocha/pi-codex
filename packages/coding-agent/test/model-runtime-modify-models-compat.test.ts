@@ -278,6 +278,9 @@ describe("extension provider model lifecycle", () => {
 			baseUrl: "http://localhost:8080/v1",
 			apiKey: "local",
 			api: "openai-completions",
+			streamSimple: () => {
+				throw new Error("unused");
+			},
 			refreshModels: async () => [
 				{
 					...model("live"),
@@ -309,6 +312,9 @@ describe("extension provider model lifecycle", () => {
 		runtime.registerProvider("extension-oauth", {
 			baseUrl: "https://example.test/v1",
 			api: "openai-completions",
+			streamSimple: () => {
+				throw new Error("unused");
+			},
 			models: [model("base")],
 			oauth: {
 				name: "Extension OAuth",

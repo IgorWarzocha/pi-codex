@@ -184,11 +184,7 @@ export class ModelRuntime implements Models {
 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
 				: new InMemoryCodingAgentModelsStore());
 		const providers = (options.builtinProviders ?? createProductProviders()).map((provider) =>
-			withRemoteCatalog(
-				provider,
-				options.catalogBaseUrl,
-				options.builtinModelDataGeneratedAt,
-			),
+			withRemoteCatalog(provider, options.catalogBaseUrl, options.builtinModelDataGeneratedAt),
 		);
 		const runtime = new ModelRuntime(
 			credentials,

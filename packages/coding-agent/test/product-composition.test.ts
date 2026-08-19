@@ -17,4 +17,31 @@ describe("Pi-Codex product composition", () => {
 	it("bundles only the native Pi-Codex extension", () => {
 		expect(productExtensions.map((extension) => extension.name)).toEqual(["Pi-Codex"]);
 	});
+
+	it("rejects configured providers without an explicit stream", async () => {
+		const runtime = await ModelRuntime.create({
+			credentials: AuthStorage.inMemory(),
+			modelsPath: null,
+			allowModelNetwork: false,
+		});
+
+		expect(() =>
+			runtime.registerProvider("custom", {
+				baseUrl: "https://example.test/v1",
+				apiKey: "test-key",
+				api: "openai-completions",
+				models: [
+					{
+						id: "custom",
+						name: "Custom",
+						reasoning: false,
+						input: ["text"],
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+						contextWindow: 128_000,
+						maxTokens: 16_384,
+					},
+				],
+			}),
+		).toThrow('Provider custom cannot stream api "openai-completions"');
+	});
 });
