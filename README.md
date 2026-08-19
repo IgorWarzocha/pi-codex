@@ -1,5 +1,9 @@
 # Pi-Codex
 
+<p align="center">
+  <img src="packages/coding-agent/src/modes/interactive/assets/pi-codex-duo.png" alt="Pixel-art Pi and Codex characters pointing at each other" width="384">
+</p>
+
 This repository is a fork of Pi focused on an opinionated OpenAI Codex TUI. The product is Pi-Codex: Code/Notebook execution, native Codex prompts and cache handling, Responses Compaction V2, voice, skills, custom tools, and a constrained Luna/Terra/Sol model surface.
 
 The coding agent is in [`packages/coding-agent`](packages/coding-agent). Start with its [Pi-Codex Guide](packages/coding-agent/docs/pi-codex-guide.md).

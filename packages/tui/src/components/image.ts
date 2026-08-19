@@ -17,6 +17,7 @@ export interface ImageTheme {
 export interface ImageOptions {
 	maxWidthCells?: number;
 	maxHeightCells?: number;
+	horizontalAlign?: "left" | "center";
 	filename?: string;
 	/** Kitty image ID. If provided, reuses this ID (for animations/updates). */
 	imageId?: number;
@@ -88,10 +89,14 @@ export class Image implements Component {
 					this.imageId = result.imageId;
 				}
 
+				const padding =
+					this.options.horizontalAlign === "center"
+						? " ".repeat(Math.max(0, Math.floor((width - result.columns) / 2)))
+						: "";
 				if (caps.images === "kitty") {
 					// For Kitty: C=1 prevents cursor movement.
 					// Don't need the cursor movement.
-					lines = [result.sequence];
+					lines = [padding + result.sequence];
 
 					// Return `rows` lines so TUI accounts for image height.
 					for (let i = 0; i < result.rows - 1; i++) {
@@ -108,7 +113,7 @@ export class Image implements Component {
 					}
 					const rowOffset = result.rows - 1;
 					const moveUp = rowOffset > 0 ? `\x1b[${rowOffset}A` : "";
-					lines.push(moveUp + result.sequence);
+					lines.push(padding + moveUp + result.sequence);
 				}
 			} else {
 				const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);

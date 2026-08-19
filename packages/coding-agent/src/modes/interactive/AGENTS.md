@@ -1,3 +1,4 @@
 - Interactive UI exposes product policy; model, settings, usage, voice, and status surfaces must describe Pi-Codex rather than generic Pi compatibility fields.
 - Keep selector geometry stable across values and terminal widths. Reserve description space where the component contract requires it; do not let labels shift columns.
 - UI-only changes still need behavior checks for keyboard navigation, focus, escape, and narrow terminals.
+- `assets/pi-codex-duo.png` is the canonical splash artwork. After changing it, run `npm run generate:splash-pixels`; do not edit the generated terminal raster.

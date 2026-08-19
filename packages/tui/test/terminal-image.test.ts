@@ -524,6 +524,25 @@ describe("Kitty image cursor movement", () => {
 		}
 	});
 
+	it("centers an image placement when requested", () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		setCellDimensions({ widthPx: 10, heightPx: 10 });
+		try {
+			const image = new Image(
+				"AAAA",
+				"image/png",
+				{ fallbackColor: (value) => value },
+				{ maxWidthCells: 2, horizontalAlign: "center" },
+				{ widthPx: 20, heightPx: 20 },
+			);
+			const lines = image.render(10);
+			assert.ok(lines[0].startsWith(`    \x1b_G`));
+		} finally {
+			resetCapabilitiesCache();
+			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+
 	it("truncates long image fallback lines to render width", () => {
 		setCapabilities({ images: null, trueColor: false, hyperlinks: false });
 		try {

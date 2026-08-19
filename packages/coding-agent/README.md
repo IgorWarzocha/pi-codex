@@ -1,5 +1,9 @@
 # Pi-Codex
 
+<p align="center">
+  <img src="src/modes/interactive/assets/pi-codex-duo.png" alt="Pixel-art Pi and Codex characters pointing at each other" width="384">
+</p>
+
 Pi-Codex is a TUI-first fork of Pi for the OpenAI Codex subscription runtime. It keeps Pi's session tree, extensions, themes, prompts, packages, project trust, JSON/RPC interfaces, and SDK foundations, while making Codex-native execution, caching, compaction, voice, skills, and settings first-class.
 
 ## Install

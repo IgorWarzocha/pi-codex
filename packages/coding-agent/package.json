@@ -43,6 +43,7 @@
 		"src/voice/rust"
 	],
 	"scripts": {
+		"generate:splash-pixels": "node scripts/generate-pi-codex-splash-pixels.mjs",
 		"clean": "shx rm -rf dist",
 		"build": "tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js dist/rpc-entry.js && npm run copy-assets",
 		"build:binary": "npm --prefix ../tui run build && npm --prefix ../telemetry run build && npm --prefix ../ai run build && npm --prefix ../agent run build && npm --prefix ../protocol run build && npm --prefix ../client run build && npm run build && bun build --compile --no-compile-autoload-bunfig ./dist/bun/cli.js ../ai/src/utils/image-resize-worker.ts --outfile dist/pi && npm run copy-binary-assets",

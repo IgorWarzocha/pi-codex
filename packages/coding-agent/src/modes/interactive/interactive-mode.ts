@@ -139,6 +139,7 @@ import {
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
+import { PiCodexSplashComponent } from "./components/pi-codex-splash.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import type { SettingsTabId } from "./components/settings-tabs.ts";
@@ -984,6 +985,8 @@ export class InteractiveMode {
 			);
 
 			// Setup UI layout
+			this.headerContainer.addChild(new Spacer(1));
+			this.headerContainer.addChild(new PiCodexSplashComponent());
 			this.headerContainer.addChild(new Spacer(1));
 			this.headerContainer.addChild(this.builtInHeader);
 			this.headerContainer.addChild(new Spacer(1));
