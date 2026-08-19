@@ -1,10 +1,5 @@
 import type { Api, Context, Model, ModelThinkingLevel, SimpleStreamOptions, Tool } from "@earendil-works/pi-ai";
-import {
-	type CodexDiagnosticsSink,
-	extractAccountId,
-	resolveCanonicalCompactionPromptInput,
-	resolveCodexWebSocketUrl,
-} from "@earendil-works/pi-ai/providers/openai-codex";
+import type { CodexDiagnosticsSink } from "@earendil-works/pi-ai/providers/openai-codex";
 import type { CompactionPreparation, CompactionResult } from "../../core/compaction/index.ts";
 import type { ModelRegistry } from "../../core/model-registry.ts";
 import type { SessionEntry, SessionManager } from "../../core/session-manager.ts";
@@ -305,27 +300,12 @@ async function handleCodexSessionBeforeCompactInner(
 		);
 		return { cancel: true };
 	}
-	const canonicalReplay =
-		runtime.codexTransport && runtime.apiKey
-			? resolveCanonicalCompactionPromptInput(
-					ctx.sessionManager.getSessionId(),
-					runtime.model,
-					{
-						url: resolveCodexWebSocketUrl(runtime.baseUrl),
-						accountId: extractAccountId(runtime.apiKey),
-					},
-					builtInput.input,
-				)
-			: { input: undefined, decision: "not_applicable" as const };
-	const validatedCanonicalInput = canonicalReplay.input?.every(isRecord)
-		? (canonicalReplay.input as ResponsesInputItem[])
-		: undefined;
-	const input = validatedCanonicalInput ?? builtInput.input;
+	const input = builtInput.input;
 	const { compactedKeptWindow } = builtInput;
 	const compactionDiagnostic: CodexCompactionDiagnostic = {
 		model: runtime.model,
-		inputSource: validatedCanonicalInput ? "canonical" : "reconstructed",
-		canonicalReplay: canonicalReplay.decision,
+		inputSource: "reconstructed",
+		canonicalReplay: "not_applicable",
 		checkpointReused: latestNativeCompaction.ok,
 		...(latestNativeCompaction.ok && latestNativeCompaction.entry.details?.model
 			? { checkpointModel: latestNativeCompaction.entry.details.model }
@@ -358,7 +338,7 @@ async function handleCodexSessionBeforeCompactInner(
 		modelRegistry: ctx.modelRegistry,
 		context,
 		promptInput: input,
-		promptInputSource: compactionDiagnostic.inputSource,
+		promptInputSource: runtime.codexTransport ? undefined : "reconstructed",
 		compactionDiagnostic,
 		diagnostics: ctx.diagnostics,
 		requestOptions,
@@ -379,7 +359,7 @@ async function handleCodexSessionBeforeCompactInner(
 		return compactResult.reason === "aborted" ? { cancel: true } : undefined;
 	}
 	const compactedWindow = buildRemoteCompactionV2Window(
-		input,
+		compactResult.promptInput,
 		compactResult.compaction,
 		state.config.compaction.v2UserMessageRetention * 1_000,
 	);

@@ -148,6 +148,9 @@ export type OpenAICodexStreamOptions = CodexProviderStreamOptions & {
 	harnessIdentifierHeader?: boolean | undefined;
 	grammarToolInputProperties?: ReadonlyMap<string, string> | undefined;
 	onOutputItemDone?: ((item: unknown) => void) | undefined;
+	transformPreparedPayload?:
+		| ((payload: ResponsesBody) => ResponsesBody | undefined | Promise<ResponsesBody | undefined>)
+		| undefined;
 	onPreparedPayload?: ((payload: ResponsesBody) => void) | undefined;
 	onStreamSettled?: (() => void) | undefined;
 	turnState?: CodexTurnState | undefined;

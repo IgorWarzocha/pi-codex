@@ -104,6 +104,7 @@ export const streamSimple: StreamFunction<"openai-codex-responses", SimpleStream
 		responsesCompaction: advanced?.responsesCompaction,
 		harnessIdentifierHeader: advanced?.harnessIdentifierHeader,
 		onOutputItemDone: advanced?.onOutputItemDone,
+		transformPreparedPayload: advanced?.transformPreparedPayload,
 		onPreparedPayload: advanced?.onPreparedPayload,
 		onStreamSettled: advanced?.onStreamSettled,
 		turnState: advanced?.turnState,

@@ -27,6 +27,27 @@ function matchesLane(state: CanonicalSessionState, url: string, accountId: strin
 	return state.url === url && state.accountId === accountId && state.requestBody.model === model;
 }
 
+function matchesCompactionRequestIdentity(recorded: ResponsesBody, current: ResponsesBody): boolean {
+	return responseInputsEqual(
+		[
+			{
+				instructions: recorded.instructions,
+				tools: recorded.tools,
+				toolChoice: recorded.tool_choice,
+				parallelToolCalls: recorded.parallel_tool_calls,
+			},
+		],
+		[
+			{
+				instructions: current.instructions,
+				tools: current.tools,
+				toolChoice: current.tool_choice,
+				parallelToolCalls: current.parallel_tool_calls,
+			},
+		],
+	);
+}
+
 function materializedInput(state: CanonicalSessionState): unknown[] {
 	return [...state.requestBody.input, ...state.responseItems];
 }
@@ -139,12 +160,15 @@ export function resolveCanonicalCompactionPromptInput(
 	model: string,
 	identity?: { url: string; accountId: string } | undefined,
 	reconstructedInput?: readonly unknown[] | undefined,
+	currentRequestBody?: ResponsesBody | undefined,
 ): { input?: unknown[] | undefined; decision: CodexCompactionReplayDecision } {
 	const state = canonicalSessions.get(sessionId);
 	if (!state) return { decision: "no_state" };
 	if (state.requestBody.model !== model) return { decision: "model_mismatch" };
 	if (identity && (state.url !== identity.url || state.accountId !== identity.accountId))
 		return { decision: "identity_mismatch" };
+	if (currentRequestBody && !matchesCompactionRequestIdentity(state.requestBody, currentRequestBody))
+		return { decision: "request_identity_mismatch" };
 	if (!reconstructedInput) return { input: structuredClone(materializedInput(state)), decision: "validated" };
 	const replay = replayCanonicalInput(
 		state,
@@ -161,9 +185,11 @@ export function canonicalCompactionRequestBody(
 	sessionId: string,
 	model: string,
 	identity: { url: string; accountId: string },
+	currentRequestBody?: ResponsesBody | undefined,
 ): ResponsesBody | undefined {
 	const state = canonicalSessions.get(sessionId);
 	if (!state || !matchesLane(state, identity.url, identity.accountId, model)) return undefined;
+	if (currentRequestBody && !matchesCompactionRequestIdentity(state.requestBody, currentRequestBody)) return undefined;
 	const body = structuredClone({ ...state.requestBody, input: [] });
 	delete body.previous_response_id;
 	return body;

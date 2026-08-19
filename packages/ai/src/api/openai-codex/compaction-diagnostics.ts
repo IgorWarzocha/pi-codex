@@ -4,6 +4,7 @@ export type CodexCompactionReplayDecision =
 	| "no_state"
 	| "model_mismatch"
 	| "identity_mismatch"
+	| "request_identity_mismatch"
 	| "input_shorter_than_baseline"
 	| "request_prefix_mismatch"
 	| "response_prefix_mismatch";

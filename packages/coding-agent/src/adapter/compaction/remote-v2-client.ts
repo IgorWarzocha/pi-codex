@@ -1,10 +1,10 @@
 import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions, Transport } from "@earendil-works/pi-ai";
 import {
 	type CodexDiagnosticsSink,
-	canonicalCompactionPromptInput,
 	canonicalCompactionRequestBody,
 	extractAccountId,
 	type ResponsesBody,
+	resolveCanonicalCompactionPromptInput,
 	resolveCodexWebSocketUrl,
 	withRemoteCompactionV2Feature,
 } from "@earendil-works/pi-ai/providers/openai-codex";
@@ -24,6 +24,9 @@ type OpenAICodexStreamOptions = SimpleStreamOptions & {
 	canonicalCompaction?: boolean | undefined;
 	compactionDiagnostics?: CodexCompactionDiagnostic | undefined;
 	diagnostics?: CodexDiagnosticsSink | undefined;
+	transformPreparedPayload?:
+		| ((payload: ResponsesBody) => ResponsesBody | undefined | Promise<ResponsesBody | undefined>)
+		| undefined;
 	onOutputItemDone?: ((item: unknown) => void) | undefined;
 };
 
@@ -33,6 +36,7 @@ export type RemoteCompactionV2Result =
 			compaction: Record<string, unknown>;
 			responseId: string;
 			createdAt: string;
+			promptInput: ResponsesInputItem[];
 			usage?: RemoteCompactionV2Usage | undefined;
 	  }
 	| {
@@ -172,6 +176,7 @@ async function runAttempt(
 	streamSimple: V2Stream,
 ): Promise<RemoteCompactionV2Result> {
 	const outputItems: unknown[] = [];
+	let submittedPromptInput = [...options.promptInput];
 	let responseStatus: number | undefined;
 	const compactionDiagnostic = options.compactionDiagnostic ?? {
 		inputSource: options.promptInputSource ?? "reconstructed",
@@ -182,16 +187,6 @@ async function runAttempt(
 		compactionDiagnostic.transport = diagnosticTransport(options.transport);
 	}
 	const canonicalIdentity = canonicalSessionIdentity(options);
-	const canonicalInput =
-		options.promptInputSource === "canonical"
-			? options.promptInput
-			: options.promptInputSource === undefined && canonicalIdentity
-				? canonicalCompactionPromptInput(options.sessionId, options.runtime.model, canonicalIdentity)
-				: undefined;
-	const canonicalBody =
-		options.promptInputSource !== "reconstructed" && canonicalIdentity
-			? canonicalCompactionRequestBody(options.sessionId, options.runtime.model, canonicalIdentity)
-			: undefined;
 	const streamOptions: OpenAICodexStreamOptions = {
 		...(options.runtime.apiKey ? { apiKey: options.runtime.apiKey } : {}),
 		headers: withRemoteCompactionV2Feature(options.runtime.headers),
@@ -211,12 +206,36 @@ async function runAttempt(
 		onResponse: (response) => {
 			responseStatus = response.status;
 		},
-		onPayload: async (payload) => {
+		transformPreparedPayload: async (payload) => {
 			const body = payload as ResponsesBody;
+			const canonicalReplay =
+				options.promptInputSource === "canonical"
+					? { input: options.promptInput as readonly unknown[], decision: "validated" as const }
+					: options.promptInputSource === undefined && canonicalIdentity
+						? resolveCanonicalCompactionPromptInput(
+								options.sessionId,
+								options.runtime.model,
+								canonicalIdentity,
+								options.promptInput,
+								body,
+							)
+						: { input: undefined, decision: "not_applicable" as const };
+			const canonicalInput = canonicalReplay.input?.every(
+				(item) => item !== null && typeof item === "object" && !Array.isArray(item),
+			)
+				? canonicalReplay.input
+				: undefined;
+			compactionDiagnostic.inputSource = canonicalInput ? "canonical" : "reconstructed";
+			compactionDiagnostic.canonicalReplay = canonicalReplay.decision;
+			const canonicalBody =
+				canonicalInput && canonicalIdentity
+					? canonicalCompactionRequestBody(options.sessionId, options.runtime.model, canonicalIdentity, body)
+					: undefined;
 			const requestBody = canonicalBody ? withCurrentCompactionControls(canonicalBody, body) : body;
 			const promptInput = normalizeRemoteCompactionV2PromptInput(
 				canonicalInput ?? options.promptInput,
 			) as ResponsesInputItem[];
+			submittedPromptInput = promptInput;
 			const request = await shrinkNativeCompactionRequestForEndpoint(
 				{
 					model: requestBody.model,
@@ -283,6 +302,7 @@ async function runAttempt(
 		compaction: compactions[0]!,
 		responseId: completed.responseId,
 		createdAt: new Date().toISOString(),
+		promptInput: submittedPromptInput,
 		usage: compactionUsage(completed, compactionDiagnostic),
 	};
 }

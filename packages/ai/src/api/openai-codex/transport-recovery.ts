@@ -267,7 +267,8 @@ export function createCodexTransportStream<TApi extends Api>(
 			const accountId = extractAccountId(apiKey);
 			const canonicalSessionToken = captureCanonicalSessionToken(effectiveOptions?.sessionId);
 			const reconstructedBody = await deps.prepareRequestBody(model, context, effectiveOptions, responsesLite);
-			const body = reconstructedBody;
+			const transformedBody = await effectiveOptions?.transformPreparedPayload?.(reconstructedBody);
+			const body = transformedBody ?? reconstructedBody;
 			const canonicalHistory: CanonicalHistoryDecision | undefined = effectiveOptions?.canonicalCompaction
 				? "compaction"
 				: validateCanonicalSessionRequest(
