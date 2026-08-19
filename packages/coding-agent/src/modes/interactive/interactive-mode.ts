@@ -52,6 +52,7 @@ import {
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
+import { consumeCodexRateLimitResetCredit, fetchCodexUsage } from "../../codex-usage/client.ts";
 import {
 	APP_NAME,
 	APP_TITLE,
@@ -140,6 +141,7 @@ import {
 } from "./components/oauth-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
+import type { SettingsTabId } from "./components/settings-tabs.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
 import {
 	BranchSummaryStatusIndicator,
@@ -2923,6 +2925,11 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/usage") {
+				this.showSettingsSelector("usage");
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/scoped-models") {
 				this.editor.setText("");
 				this.showModelSelector();
@@ -4476,7 +4483,7 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	private showSettingsSelector(): void {
+	private showSettingsSelector(initialTab?: SettingsTabId): void {
 		this.showSelector((done) => {
 			let selector: SettingsSelectorComponent | undefined;
 			selector = new SettingsSelectorComponent(
@@ -4691,6 +4698,15 @@ export class InteractiveMode {
 						done();
 						this.ui.requestRender();
 					},
+				},
+				{
+					initialTab,
+					usage: {
+						fetch: () => fetchCodexUsage(this.session.extensionRunner.createContext()),
+						consumeReset: (redeemRequestId) =>
+							consumeCodexRateLimitResetCredit(this.session.extensionRunner.createContext(), redeemRequestId),
+					},
+					requestRender: () => this.ui.requestRender(),
 				},
 			);
 			return { component: selector, focus: selector };

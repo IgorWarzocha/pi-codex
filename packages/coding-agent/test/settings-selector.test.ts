@@ -73,11 +73,42 @@ describe("SettingsSelectorComponent", () => {
 		expect(codex).not.toContain("Execution mode");
 	});
 
+	it("shows Codex subscription limits in the Usage tab", async () => {
+		const selector = new SettingsSelectorComponent(config(), {} as SettingsCallbacks, {
+			initialTab: "usage",
+			usage: {
+				fetch: vi.fn().mockResolvedValue({
+					planType: "plus",
+					limits: [
+						{
+							limitId: "codex",
+							primary: { usedPercent: 25 },
+							secondary: { usedPercent: 40 },
+						},
+					],
+					resetCredits: { availableCount: 2, credits: [], raw: {} },
+					raw: {},
+				}),
+				consumeReset: vi.fn(),
+			},
+		});
+
+		expect(selector.getActiveTabId()).toBe("usage");
+		expect(selector.render(120).join("\n")).toContain("Loading Codex usage");
+		await vi.waitFor(() => {
+			const rendered = selector.render(120).join("\n");
+			expect(rendered).toContain("Codex usage · plus");
+			expect(rendered).toContain("Banked resets: 2");
+			expect(rendered).toContain("75%");
+			expect(rendered).toContain("60%");
+		});
+	});
+
 	it("keeps the main settings frame at a stable height", () => {
 		const selector = new SettingsSelectorComponent(config(), {} as SettingsCallbacks);
 		const heights: number[] = [];
 
-		for (let index = 0; index < 6; index += 1) {
+		for (let index = 0; index < 7; index += 1) {
 			heights.push(selector.render(80).length);
 			selector.handleInput("\t");
 		}
@@ -108,7 +139,7 @@ describe("SettingsSelectorComponent", () => {
 
 		const cycle = (down: number, count: number) => {
 			const selector = new SettingsSelectorComponent(config(), callbacks);
-			for (let i = 0; i < 4; i++) selector.handleInput("\t");
+			for (let i = 0; i < 5; i++) selector.handleInput("\t");
 			for (let i = 0; i < down; i++) selector.handleInput("\x1b[B");
 			for (let i = 0; i < count; i++) selector.handleInput("\r");
 		};

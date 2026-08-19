@@ -34,12 +34,15 @@ import {
 } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyDisplayText } from "./keybinding-hints.ts";
-import { SETTINGS_TABS, settingsByTab } from "./settings-tabs.ts";
+import { SETTINGS_TABS, type SettingsTabId, settingsByTab } from "./settings-tabs.ts";
+import { type CodexUsageActions, CodexUsageTab } from "./usage-tab.ts";
 
 const SETTINGS_SUBMENU_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 	minPrimaryColumnWidth: 12,
 	maxPrimaryColumnWidth: 32,
 };
+
+const SETTINGS_BODY_HEIGHT = 12;
 
 const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	off: "No reasoning",
@@ -146,6 +149,12 @@ export interface SettingsCallbacks {
 	onFullscreenScrollbarChange: (mode: ScrollViewScrollbar) => void;
 	onWarningsChange: (warnings: WarningSettings) => void;
 	onCancel: () => void;
+}
+
+export interface SettingsSelectorOptions {
+	initialTab?: SettingsTabId | undefined;
+	usage?: CodexUsageActions | undefined;
+	requestRender?: (() => void) | undefined;
 }
 
 /**
@@ -509,10 +518,15 @@ export class SettingsSelectorComponent extends Container {
 	private readonly onSettingChange: (id: string, newValue: string) => void;
 	private readonly onCancel: () => void;
 	private readonly border = new DynamicBorder();
+	private readonly usageTab: CodexUsageTab | undefined;
 	private activeTabIndex = 0;
 
-	constructor(config: SettingsConfig, callbacks: SettingsCallbacks) {
+	constructor(config: SettingsConfig, callbacks: SettingsCallbacks, options: SettingsSelectorOptions = {}) {
 		super();
+		if (options.initialTab) {
+			const initialTabIndex = SETTINGS_TABS.findIndex((tab) => tab.id === options.initialTab);
+			if (initialTabIndex >= 0) this.activeTabIndex = initialTabIndex;
+		}
 
 		const supportsImages = getCapabilities().images;
 		const followUpKey = keyDisplayText("app.message.followUp");
@@ -1176,6 +1190,8 @@ export class SettingsSelectorComponent extends Container {
 			}
 		};
 		this.settingsList = this.createSettingsList();
+		this.usageTab = options.usage ? new CodexUsageTab(options.usage, options.requestRender ?? (() => {})) : undefined;
+		if (this.activeTab().id === "usage") this.usageTab?.ensureLoaded();
 	}
 
 	private activeTab(): (typeof SETTINGS_TABS)[number] {
@@ -1200,6 +1216,7 @@ export class SettingsSelectorComponent extends Container {
 	private switchTab(delta: number): void {
 		this.activeTabIndex = (this.activeTabIndex + delta + SETTINGS_TABS.length) % SETTINGS_TABS.length;
 		this.settingsList = this.createSettingsList();
+		if (this.activeTab().id === "usage") this.usageTab?.ensureLoaded();
 	}
 
 	override render(width: number): string[] {
@@ -1208,13 +1225,24 @@ export class SettingsSelectorComponent extends Container {
 		const tabs = SETTINGS_TABS.map((tab) =>
 			tab.id === activeTab.id ? theme.bold(theme.fg("accent", tab.label)) : theme.fg("dim", tab.label),
 		).join(separator);
+		const body =
+			activeTab.id === "usage"
+				? (this.usageTab?.render(width, SETTINGS_BODY_HEIGHT) ?? [
+						theme.fg("error", "  Codex usage is unavailable."),
+						...Array.from({ length: SETTINGS_BODY_HEIGHT - 1 }, () => ""),
+					])
+				: this.settingsList.render(width);
+		const footer =
+			activeTab.id === "usage"
+				? `${keyDisplayText("app.settings.refreshUsage")} refresh · ${keyDisplayText("app.settings.consumeUsageReset")} use reset · Tab/Shift+Tab or ←/→ sections · Esc close`
+				: "Type to filter · Enter change · Tab/Shift+Tab or ←/→ sections · Esc close";
 		return [
 			...this.border.render(width),
 			`  ${tabs}`,
 			theme.fg("muted", `  ${activeTab.description}`),
 			"",
-			...this.settingsList.render(width),
-			theme.fg("dim", "  Type to filter · Enter change · Tab/Shift+Tab or ←/→ sections · Esc close"),
+			...body,
+			theme.fg("dim", `  ${footer}`),
 			...this.border.render(width),
 		].map((line) => truncateToWidth(line, width, ""));
 	}
@@ -1225,10 +1253,15 @@ export class SettingsSelectorComponent extends Container {
 
 	handleInput(data: string): void {
 		const kb = getKeybindings();
-		if (!this.settingsList.hasOpenSubmenu() && kb.matches(data, "app.settings.nextTab")) {
+		const usageActive = this.activeTab().id === "usage";
+		if ((usageActive || !this.settingsList.hasOpenSubmenu()) && kb.matches(data, "app.settings.nextTab")) {
 			this.switchTab(1);
-		} else if (!this.settingsList.hasOpenSubmenu() && kb.matches(data, "app.settings.previousTab")) {
+		} else if ((usageActive || !this.settingsList.hasOpenSubmenu()) && kb.matches(data, "app.settings.previousTab")) {
 			this.switchTab(-1);
+		} else if (usageActive && this.usageTab?.handleInput(data)) {
+			return;
+		} else if (usageActive && kb.matches(data, "tui.select.cancel")) {
+			this.onCancel();
 		} else {
 			this.settingsList.handleInput(data);
 		}

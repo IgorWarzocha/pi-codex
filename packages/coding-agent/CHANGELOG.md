@@ -21,7 +21,9 @@
 
 ### Changed
 
-- Reworked `/settings` into guided General, Codex, Voice, Display, Terminal, and Advanced tabs with stable pagination, descriptions, columns, and native Codex controls.
+- Startup instruction discovery now loads only the Pi-Codex global context file and the file directly in the current working directory; nested context discovery follows native `exec_command` reads instead of legacy Pi file tools.
+- Pi-Codex now keeps its normal Pi directory structure under `~/.pi-codex/agent`, uses its `skills/` as the only default global skill root, supports `PI_CODEX_HOME`, and offers a one-time import of compatible stock Pi preferences without sharing authentication, sessions, models, extensions, or packages.
+- Reworked `/settings` into guided General, Codex, Voice, Usage, Display, Terminal, and Advanced tabs with stable pagination, descriptions, columns, native Codex controls, subscription limits, and banked resets; `/usage` opens the Usage tab directly.
 - Tree-navigation summaries now run as hidden developer turns over the exact active provider context and settings, then return as visible, non-triggering developer context after the jump. This preserves the pre-jump cache lane and retains structured tool output instead of issuing cold, aggressively serialized summary requests.
 - Pi-Codex now builds its compact system prompt directly from runtime guidance, project instructions, skills, shell context, and the working directory instead of constructing and rewriting Pi's stock prompt before each turn.
 - Pi-Codex background-shell settings now propagate through an explicit runtime notification instead of polling from `before_agent_start`.

@@ -43,6 +43,8 @@ export interface AppKeybindings {
 	"app.models.save": true;
 	"app.settings.nextTab": true;
 	"app.settings.previousTab": true;
+	"app.settings.refreshUsage": true;
+	"app.settings.consumeUsageReset": true;
 	"app.tree.filter.default": true;
 	"app.tree.filter.noTools": true;
 	"app.tree.filter.userOnly": true;
@@ -160,6 +162,14 @@ export const KEYBINDINGS = {
 	"app.settings.previousTab": {
 		defaultKeys: ["shift+tab", "left"],
 		description: "Open previous settings tab",
+	},
+	"app.settings.refreshUsage": {
+		defaultKeys: "r",
+		description: "Refresh Codex usage",
+	},
+	"app.settings.consumeUsageReset": {
+		defaultKeys: "ctrl+r",
+		description: "Consume a banked Codex reset",
 	},
 	"app.tree.filter.default": {
 		defaultKeys: "ctrl+d",

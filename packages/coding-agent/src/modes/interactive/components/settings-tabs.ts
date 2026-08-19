@@ -48,6 +48,12 @@ export const SETTINGS_TABS = [
 		],
 	},
 	{
+		id: "usage",
+		label: "Usage",
+		description: "OpenAI Codex subscription limits, reset times, and banked resets.",
+		settingIds: [],
+	},
+	{
 		id: "display",
 		label: "Display",
 		description: "Transcript content, images, diagrams, status, theme, and spacing.",
@@ -90,6 +96,7 @@ export const SETTINGS_TABS = [
 ] as const;
 
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
+export type SettingsTabId = SettingsTab["id"];
 
 export function settingsByTab(items: SettingItem[]): Map<SettingsTab["id"], SettingItem[]> {
 	const tabsBySettingId = new Map<string, SettingsTab["id"]>();
