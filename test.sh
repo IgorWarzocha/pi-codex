@@ -76,4 +76,6 @@ for name in CI GITHUB_ACTIONS; do
 done
 
 echo "Running tests without API keys in isolated home: $test_root/home"
+# Keep this exhaustive. Removed product surfaces belong out of the suites and are guarded by
+# product-composition tests; exclusions here would hide accidental upstream reintroductions.
 env -i "${test_env[@]}" npm test

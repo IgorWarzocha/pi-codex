@@ -38,6 +38,7 @@ describe("regression #5596: missing configured theme export", () => {
 			baseUrl: model.baseUrl,
 			apiKey: "faux-key",
 			api: faux.api,
+			streamSimple,
 			models: faux.models.map((registeredModel) => ({
 				id: registeredModel.id,
 				name: registeredModel.name,

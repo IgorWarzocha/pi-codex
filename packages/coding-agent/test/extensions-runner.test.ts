@@ -44,6 +44,9 @@ describe("ExtensionRunner", () => {
 		baseUrl: "https://provider.test/v1",
 		apiKey: "provider-test-key",
 		api: "openai-completions",
+		streamSimple: () => {
+			throw new Error("Provider stream should not run in registry tests");
+		},
 		models: [
 			{
 				id: "instant-model",

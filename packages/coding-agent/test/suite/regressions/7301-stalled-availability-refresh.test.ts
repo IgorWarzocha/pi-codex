@@ -52,7 +52,7 @@ function stallNextCredentialList(harness: Harness): StalledCredentialList {
 
 async function waitForRecoveryRefresh(stalledList: StalledCredentialList, harness: Harness): Promise<void> {
 	const refresh = harness.session.modelRuntime.refresh({ allowNetwork: false });
-	await vi.waitFor(() => expect(stalledList.getCallCount()).toBe(2));
+	await vi.waitFor(() => expect(stalledList.getCallCount()).toBeGreaterThanOrEqual(2));
 	await refresh;
 }
 

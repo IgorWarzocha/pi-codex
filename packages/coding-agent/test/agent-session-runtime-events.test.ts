@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, registerFauxProvider, streamSimple } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CreateAgentSessionRuntimeFactory,
@@ -52,6 +52,7 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		modelRuntime.registerProvider(model.provider, {
 			baseUrl: model.baseUrl,
 			api: model.api,
+			streamSimple,
 			models: [
 				{
 					id: model.id,

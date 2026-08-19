@@ -262,14 +262,14 @@ describe("AgentSession queue characterization", () => {
 		const waiting = await createWaitingHarness();
 		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
 		harnesses.push(harness);
-		let sawCustomMessage = false;
+		let sawDeveloperMessage = false;
 
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
 			(context) => {
-				sawCustomMessage = context.messages.some(
+				sawDeveloperMessage = context.messages.some(
 					(message) =>
-						message.role === "user" &&
+						message.role === "developer" &&
 						typeof message.content !== "string" &&
 						message.content.some((part) => part.type === "text" && part.text === "steer custom"),
 				);
@@ -285,7 +285,7 @@ describe("AgentSession queue characterization", () => {
 		releaseToolExecution();
 		await promptPromise;
 
-		expect(sawCustomMessage).toBe(true);
+		expect(sawDeveloperMessage).toBe(true);
 		expect(
 			harness.session.messages.some((message) => message.role === "custom" && message.customType === "queue-test"),
 		).toBe(true);
@@ -295,15 +295,15 @@ describe("AgentSession queue characterization", () => {
 		const waiting = await createWaitingHarness();
 		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
 		harnesses.push(harness);
-		let sawCustomMessage = false;
+		let sawDeveloperMessage = false;
 
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage("original turn complete"),
 			(context) => {
-				sawCustomMessage = context.messages.some(
+				sawDeveloperMessage = context.messages.some(
 					(message) =>
-						message.role === "user" &&
+						message.role === "developer" &&
 						typeof message.content !== "string" &&
 						message.content.some((part) => part.type === "text" && part.text === "follow-up custom"),
 				);
@@ -319,7 +319,7 @@ describe("AgentSession queue characterization", () => {
 		releaseToolExecution();
 		await promptPromise;
 
-		expect(sawCustomMessage).toBe(true);
+		expect(sawDeveloperMessage).toBe(true);
 		expect(
 			harness.session.messages.some((message) => message.role === "custom" && message.customType === "queue-test"),
 		).toBe(true);
@@ -328,7 +328,7 @@ describe("AgentSession queue characterization", () => {
 	it("injects nextTurn custom messages into the next prompt", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
-		let sawCustomMessage = false;
+		let sawDeveloperMessage = false;
 
 		await harness.session.sendCustomMessage(
 			{ customType: "next-turn", content: "carry this", display: true, details: {} },
@@ -337,9 +337,9 @@ describe("AgentSession queue characterization", () => {
 
 		harness.setResponses([
 			(context) => {
-				sawCustomMessage = context.messages.some(
+				sawDeveloperMessage = context.messages.some(
 					(message) =>
-						message.role === "user" &&
+						message.role === "developer" &&
 						typeof message.content !== "string" &&
 						message.content.some((part) => part.type === "text" && part.text === "carry this"),
 				);
@@ -349,7 +349,7 @@ describe("AgentSession queue characterization", () => {
 
 		await harness.session.prompt("normal prompt");
 
-		expect(sawCustomMessage).toBe(true);
+		expect(sawDeveloperMessage).toBe(true);
 		expect(harness.session.messages.map((message) => message.role)).toEqual(["user", "custom", "assistant"]);
 	});
 

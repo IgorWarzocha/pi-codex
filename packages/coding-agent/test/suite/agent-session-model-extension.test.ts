@@ -350,13 +350,13 @@ describe("AgentSession model and extension characterization", () => {
 		});
 		harnesses.push(harness);
 		let providerSystemPrompt = "";
-		let sawInjectedUserMessage = false;
+		let sawInjectedDeveloperMessage = false;
 		harness.setResponses([
 			(context) => {
 				providerSystemPrompt = context.systemPrompt ?? "";
-				sawInjectedUserMessage = context.messages.some(
+				sawInjectedDeveloperMessage = context.messages.some(
 					(message) =>
-						message.role === "user" &&
+						message.role === "developer" &&
 						typeof message.content !== "string" &&
 						message.content.some((part) => part.type === "text" && part.text === "injected"),
 				);
@@ -367,7 +367,7 @@ describe("AgentSession model and extension characterization", () => {
 		await harness.session.prompt("hello");
 
 		expect(providerSystemPrompt).toContain("extra instructions");
-		expect(sawInjectedUserMessage).toBe(true);
+		expect(sawInjectedDeveloperMessage).toBe(true);
 		expect(
 			harness.session.messages.some((message) => message.role === "custom" && message.customType === "before-start"),
 		).toBe(true);
