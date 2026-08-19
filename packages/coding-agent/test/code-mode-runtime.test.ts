@@ -235,6 +235,38 @@ describe("Pi-Codex Code Mode", () => {
 		expect(state.ALL_TOOLS).toEqual([{ name: "deferred_tool", description: undefined }]);
 	});
 
+	it("announces promoted custom tools added after the prompt snapshot", () => {
+		const announced: Array<Array<{ name: string; usage: string }>> = [];
+		const runtime = new CodeModeRuntime({
+			agentDir,
+			cwd: tempDir,
+			getTools: () => [],
+			getNotebookOptions: () => ({ agentDir, maxHeapMiB: 4096 }),
+			onPromotedCustomToolsAdded: (tools) => announced.push(tools),
+		});
+		expect(runtime.buildPromptSection(false)).not.toContain("late_tool");
+
+		const customToolsDir = join(agentDir, "custom-tools");
+		mkdirSync(customToolsDir, { recursive: true });
+		writeFileSync(
+			join(customToolsDir, "late_tool.toml"),
+			['usage = "await tools.late_tool(input)"', 'command = "late-tool"', "defer_loading = false"].join("\n"),
+		);
+
+		const currentTool = runtime.collectTools().find((tool) => tool.name === "late_tool");
+		expect(currentTool?.deferLoading).toBe(true);
+		expect(announced).toEqual([
+			[expect.objectContaining({ name: "late_tool", usage: "await tools.late_tool(input)" })],
+		]);
+		runtime.collectTools();
+		expect(announced).toHaveLength(1);
+
+		runtime.resetPromptTools();
+		expect(runtime.buildPromptSection(false)).toContain("await tools.late_tool(input)");
+		expect(runtime.collectTools().find((tool) => tool.name === "late_tool")?.deferLoading).toBe(false);
+		expect(announced).toHaveLength(1);
+	});
+
 	it("parses and directly executes TOML custom tools", async () => {
 		const scriptPath = join(tempDir, "echo-value.mjs");
 		writeFileSync(scriptPath, "process.stdout.write(process.argv[2])");

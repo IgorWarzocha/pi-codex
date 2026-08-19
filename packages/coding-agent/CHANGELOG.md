@@ -21,6 +21,7 @@
 - The native fork now ignores `@howaboua/pi-codex-conversion` wherever it appears in extension configuration, preventing the superseded extension from loading alongside its built-in replacement.
 - Codex cache prewarming, diagnostics, and Responses Compaction V2 now run as session-native services with the final prompt and ordered agent tools, rather than reconstructing provider state through extension hooks and global symbol bridges.
 - Extension-injected context now remains developer-authored through provider serialization and native compaction instead of being rewritten as user input.
+- Dynamic provider tools and promoted Code Mode custom tools now become non-triggering developer capability updates, preserving the current system-prompt prefix while new sessions load them normally.
 
 ### Removed
 

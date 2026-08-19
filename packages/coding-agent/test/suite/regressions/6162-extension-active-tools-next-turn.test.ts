@@ -66,7 +66,7 @@ describe("extension active tools next-turn refresh", () => {
 		}
 	});
 
-	it("records additive active tool changes on the current tool result", async () => {
+	it("records additive active tool changes as developer capability updates", async () => {
 		const extensionFactories: ExtensionFactory[] = [
 			(pi) => {
 				pi.registerTool({
@@ -87,6 +87,8 @@ describe("extension active tools next-turn refresh", () => {
 					name: "after_load",
 					label: "After Load",
 					description: "Tool available after loading",
+					promptSnippet: "Run after-load behavior",
+					promptGuidelines: ["Use after_load after it becomes available."],
 					parameters: Type.Object({}),
 					execute: async () => ({
 						content: [{ type: "text", text: "after" }],
@@ -98,13 +100,32 @@ describe("extension active tools next-turn refresh", () => {
 		const harness = await createHarness({ extensionFactories });
 
 		try {
+			await harness.session.bindExtensions({});
 			harness.session.setActiveToolsByName(["load_more_tools"]);
 
-			const addedToolNames: string[][] = [];
+			const developerToolNames: string[][] = [];
+			const developerContents: string[] = [];
+			const resultToolNames: string[][] = [];
+			const providerSystemPrompts: string[] = [];
 			harness.setResponses([
-				() => fauxAssistantMessage(fauxToolCall("load_more_tools", {}), { stopReason: "toolUse" }),
 				(context) => {
-					addedToolNames.push(
+					providerSystemPrompts.push(context.systemPrompt ?? "");
+					return fauxAssistantMessage(fauxToolCall("load_more_tools", {}), { stopReason: "toolUse" });
+				},
+				(context) => {
+					providerSystemPrompts.push(context.systemPrompt ?? "");
+					developerToolNames.push(
+						context.messages
+							.filter((message) => message.role === "developer")
+							.flatMap((message) => message.addedToolNames ?? []),
+					);
+					developerContents.push(
+						context.messages
+							.filter((message) => message.role === "developer")
+							.map((message) => JSON.stringify(message.content))
+							.join("\n"),
+					);
+					resultToolNames.push(
 						context.messages
 							.filter((message) => message.role === "toolResult")
 							.flatMap((message) => message.addedToolNames ?? []),
@@ -116,7 +137,12 @@ describe("extension active tools next-turn refresh", () => {
 			await harness.session.prompt("start");
 
 			expect(harness.session.getActiveToolNames()).toEqual(["load_more_tools", "after_load"]);
-			expect(addedToolNames).toEqual([["after_load"]]);
+			expect(developerToolNames).toEqual([["after_load"]]);
+			expect(developerContents[0]).toContain("Run after-load behavior");
+			expect(developerContents[0]).toContain("Use after_load after it becomes available.");
+			expect(resultToolNames).toEqual([[]]);
+			expect(providerSystemPrompts[0]).not.toContain("Use after_load after it becomes available.");
+			expect(providerSystemPrompts[1]).toBe(providerSystemPrompts[0]);
 		} finally {
 			harness.cleanup();
 		}

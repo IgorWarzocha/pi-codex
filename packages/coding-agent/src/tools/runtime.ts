@@ -44,6 +44,9 @@ export interface CodexToolRuntimeOptions {
 		describeImagesForTextModels?: boolean | undefined;
 		webSearchModel?: string | undefined;
 	};
+	onPromotedCustomToolsAdded?(
+		tools: Array<{ name: string; usage: string; description?: string; output?: string }>,
+	): void;
 }
 
 export interface CodexToolRuntime {
@@ -88,6 +91,7 @@ export function createCodexToolRuntime(options: CodexToolRuntimeOptions): CodexT
 		cwd: options.cwd,
 		getTools: (ctx) => createNativeCodeModeTools(tracker, sessions, ctx, options.getPiCodexOptions()),
 		getNotebookOptions: () => ({ agentDir: options.agentDir, ...options.getNotebookOptions() }),
+		onPromotedCustomToolsAdded: options.onPromotedCustomToolsAdded,
 	});
 	const normalDefinitions: Record<string, ToolDefinition> = {
 		exec_command: eraseToolDefinition(createExecCommandTool(tracker, sessions, { showOutputWhenCollapsed: true })),

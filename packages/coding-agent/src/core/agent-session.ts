@@ -29,6 +29,7 @@ import {
 	clampThinkingLevel,
 	cleanupSessionResources,
 	contentText,
+	type DeveloperMessage,
 	getSupportedThinkingLevels,
 	type ImageContent,
 	isContextOverflow,
@@ -382,6 +383,14 @@ export class AgentSession {
 	private _toolDefinitions: Map<string, ToolDefinitionEntry> = new Map();
 	private _toolPromptSnippets: Map<string, string> = new Map();
 	private _toolPromptGuidelines: Map<string, string[]> = new Map();
+	private _toolAvailabilityAnnouncementsEnabled = false;
+	private readonly _pendingToolAvailabilityNames = new Set<string>();
+	private readonly _pendingPromotedCustomTools: Array<{
+		name: string;
+		usage: string;
+		description?: string;
+		output?: string;
+	}> = [];
 
 	// Base system prompt (without extension appends) - used to apply fresh appends each turn
 	private _baseSystemPrompt = "";
@@ -408,6 +417,7 @@ export class AgentSession {
 					webSearchModel: settings.openai?.webSearchModel,
 				};
 			},
+			onPromotedCustomToolsAdded: (tools) => this._announcePromotedCustomTools(tools),
 		});
 		this._codexExecutionMode = this._codexToolRuntime.resolveExecutionMode(
 			config.agent.state.model,
@@ -545,6 +555,7 @@ export class AgentSession {
 		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
 			const previousContext = previousSnapshot?.context ?? turn.context;
+			this._flushPendingToolAvailability(previousContext.messages, turn.newMessages);
 
 			return {
 				...previousSnapshot,
@@ -605,6 +616,7 @@ export class AgentSession {
 
 	private async _emitAgentSettled(): Promise<void> {
 		this._isAgentRunActive = false;
+		this._flushPendingToolAvailability();
 		try {
 			await this._extensionRunner.emit({ type: "agent_settled" });
 			await this._codexSessionRuntime.agentSettled();
@@ -643,6 +655,7 @@ export class AgentSession {
 
 		// Emit to extensions first
 		await this._emitExtensionEvent(event);
+		if (event.type === "agent_end") this._flushPendingToolAvailability(undefined, event.messages);
 
 		// Notify all listeners
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
@@ -955,6 +968,11 @@ export class AgentSession {
 	 * Changes take effect on the next agent turn.
 	 */
 	setActiveToolsByName(toolNames: string[]): void {
+		this._setActiveToolsByName(toolNames, this._toolAvailabilityAnnouncementsEnabled);
+	}
+
+	private _setActiveToolsByName(toolNames: string[], announceAdditions: boolean): void {
+		const previousToolNames = this.getActiveToolNames();
 		const tools: AgentTool[] = [];
 		const validToolNames: string[] = [];
 		for (const name of toolNames) {
@@ -965,10 +983,94 @@ export class AgentSession {
 			}
 		}
 		this.agent.state.tools = tools;
+		const validToolNameSet = new Set(validToolNames);
+		const previousToolNameSet = new Set(previousToolNames);
+		const addedToolNames = validToolNames.filter((name) => !previousToolNameSet.has(name));
+		const removedToolNames = previousToolNames.filter((name) => !validToolNameSet.has(name));
+		if (announceAdditions && addedToolNames.length > 0 && removedToolNames.length === 0) {
+			this._announceToolAvailability(addedToolNames);
+			return;
+		}
 
 		// Rebuild base system prompt with new tool set
 		this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
 		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
+	}
+
+	private _announceToolAvailability(toolNames: readonly string[]): void {
+		for (const name of toolNames) this._pendingToolAvailabilityNames.add(name);
+		if (!this.isStreaming) this._flushPendingToolAvailability();
+	}
+
+	private _announcePromotedCustomTools(
+		tools: Array<{ name: string; usage: string; description?: string; output?: string }>,
+	): void {
+		this._pendingPromotedCustomTools.push(...tools);
+		if (!this.isStreaming) this._flushPendingToolAvailability();
+	}
+
+	private _flushPendingToolAvailability(contextMessages?: AgentMessage[], runMessages?: AgentMessage[]): void {
+		const activeNames = new Set(this.getActiveToolNames());
+		const toolNames = [...this._pendingToolAvailabilityNames].filter((name) => activeNames.has(name));
+		this._pendingToolAvailabilityNames.clear();
+		const promotedCustomTools = this._pendingPromotedCustomTools.splice(0);
+		const messages = [
+			...(toolNames.length > 0 ? [this._createToolAvailabilityMessage(toolNames)] : []),
+			...(promotedCustomTools.length > 0 ? [this._createPromotedCustomToolsMessage(promotedCustomTools)] : []),
+		];
+		for (const message of messages) {
+			this.agent.state.messages.push(message);
+			if (contextMessages && contextMessages !== this.agent.state.messages) contextMessages.push(message);
+			if (runMessages && runMessages !== contextMessages && runMessages !== this.agent.state.messages) {
+				runMessages.push(message);
+			}
+			this.sessionManager.appendMessage(message);
+			this._emit({ type: "message_start", message });
+			this._emit({ type: "message_end", message });
+		}
+	}
+
+	private _createToolAvailabilityMessage(toolNames: string[]): DeveloperMessage {
+		const lines = [
+			"<tool_availability>",
+			"The following tools are now available in this session. This is a capability update, not a user request.",
+		];
+		const guidelines: string[] = [];
+		for (const name of toolNames) {
+			const snippet = this._toolPromptSnippets.get(name);
+			lines.push(`- ${name}${snippet ? `: ${snippet}` : ""}`);
+			guidelines.push(...(this._toolPromptGuidelines.get(name) ?? []));
+		}
+		if (guidelines.length > 0) {
+			lines.push("", "Guidelines:", ...[...new Set(guidelines)].map((guideline) => `- ${guideline}`));
+		}
+		lines.push("</tool_availability>");
+		return {
+			role: "developer",
+			content: [{ type: "text", text: lines.join("\n") }],
+			addedToolNames: toolNames,
+			timestamp: Date.now(),
+		};
+	}
+
+	private _createPromotedCustomToolsMessage(
+		tools: Array<{ name: string; usage: string; description?: string; output?: string }>,
+	): DeveloperMessage {
+		const lines = [
+			'<tool_availability scope="exec">',
+			"The following configured tools are now available through exec. This is a capability update, not a user request.",
+		];
+		for (const tool of tools) {
+			lines.push(`- ${tool.usage}`);
+			if (tool.description) lines.push(`  ${tool.description}`);
+			if (tool.output) lines.push(`  Output: ${tool.output}`);
+		}
+		lines.push("</tool_availability>");
+		return {
+			role: "developer",
+			content: [{ type: "text", text: lines.join("\n") }],
+			timestamp: Date.now(),
+		};
 	}
 
 	/** Whether compaction or branch summarization is currently running */
@@ -2459,6 +2561,7 @@ export class AgentSession {
 
 		this._applyExtensionBindings(this._extensionRunner);
 		await this._codexSessionRuntime.modelChanged();
+		this._toolAvailabilityAnnouncementsEnabled = true;
 		await this._extensionRunner.emit(this._sessionStartEvent);
 		await this.extendResourcesFromExtensions(this._sessionStartEvent.reason === "reload" ? "reload" : "startup");
 	}
@@ -2605,7 +2708,10 @@ export class AgentSession {
 				getActiveTools: () => this.getActiveToolNames(),
 				getAllTools: () => this.getAllTools(),
 				setActiveTools: (toolNames) => this.setActiveToolsByName(toolNames),
-				refreshTools: () => this._refreshToolRegistry(),
+				refreshTools: () =>
+					this._refreshToolRegistry({
+						announceAdditions: this._toolAvailabilityAnnouncementsEnabled,
+					}),
 				getCommands,
 				setModel: async (model) => {
 					if (!this._modelRuntime.hasConfiguredAuth(model.provider)) return false;
@@ -2664,7 +2770,11 @@ export class AgentSession {
 		);
 	}
 
-	private _refreshToolRegistry(options?: { activeToolNames?: string[]; includeAllExtensionTools?: boolean }): void {
+	private _refreshToolRegistry(options?: {
+		activeToolNames?: string[];
+		includeAllExtensionTools?: boolean;
+		announceAdditions?: boolean;
+	}): void {
 		const previousRegistryNames = new Set(this._toolRegistry.keys());
 		const previousActiveToolNames = this.getActiveToolNames();
 		const allowedToolNames = this._allowedToolNames;
@@ -2754,7 +2864,7 @@ export class AgentSession {
 			}
 		}
 
-		this.setActiveToolsByName([...new Set(nextActiveToolNames)]);
+		this._setActiveToolsByName([...new Set(nextActiveToolNames)], options?.announceAdditions === true);
 	}
 
 	private _buildRuntime(options: {

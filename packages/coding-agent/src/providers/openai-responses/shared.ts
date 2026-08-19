@@ -81,7 +81,7 @@ export function splitDeferredTools(
 			for (const block of message.content) {
 				if (block.type === "toolCall") usedNames.add(block.name);
 			}
-		} else if (message.role === "toolResult") {
+		} else if (message.role === "toolResult" || message.role === "developer") {
 			for (const name of message.addedToolNames ?? []) {
 				if (!usedNames.has(name)) deferredNames.add(name);
 			}
@@ -148,6 +148,42 @@ export function convertResponsesMessages<TApi extends Api>(
 		model as Model<Api>,
 		normalizeToolCallId as never,
 	);
+	const appendDeferredTools = (names: readonly string[], anchor: string): void => {
+		const deferredTools: Tool[] = [];
+		for (const name of names) {
+			const tool = options?.deferredTools?.get(name);
+			if (!tool || loadedToolNames.has(name)) continue;
+			loadedToolNames.add(name);
+			deferredTools.push(tool);
+		}
+		if (deferredTools.length > 0 && options?.deferredToolsMode === "additional-tools") {
+			messages.push({
+				type: "additional_tools",
+				role: "developer",
+				tools: convertResponsesTools(deferredTools, options.toolOptions),
+			} as unknown as ResponseInputItem);
+		} else if (deferredTools.length > 0 && options?.deferredToolsMode === "tool-search") {
+			const toolNames = deferredTools.map((tool) => tool.name);
+			const searchCallId = `pi_tool_load_${shortHash(`${anchor}:${toolNames.join(",")}`)}`;
+			messages.push({
+				type: "tool_search_call",
+				call_id: searchCallId,
+				execution: "client",
+				status: "completed",
+				arguments: { query: toolNames.join(" "), limit: toolNames.length },
+			} satisfies ResponseInputItem);
+			messages.push({
+				type: "tool_search_output",
+				call_id: searchCallId,
+				execution: "client",
+				status: "completed",
+				tools: convertResponsesTools(deferredTools, {
+					...options.toolOptions,
+					deferLoading: true,
+				}),
+			} satisfies ResponseToolSearchOutputItemParam);
+		}
+	};
 	const includeSystemPrompt = options?.includeSystemPrompt ?? true;
 	if (includeSystemPrompt && context.systemPrompt) {
 		messages.push({
@@ -172,6 +208,9 @@ export function convertResponsesMessages<TApi extends Api>(
 							},
 				);
 				if (content.length > 0) messages.push({ role: msg.role, content });
+			}
+			if (msg.role === "developer") {
+				appendDeferredTools(msg.addedToolNames ?? [], `developer:${msg.timestamp}`);
 			}
 		} else if (msg.role === "assistant") {
 			const output: ResponseInput = [];
@@ -278,40 +317,7 @@ export function convertResponsesMessages<TApi extends Api>(
 				output,
 			} as unknown as ResponseInput[number]);
 
-			const deferredTools: Tool[] = [];
-			for (const name of msg.addedToolNames ?? []) {
-				const tool = options?.deferredTools?.get(name);
-				if (!tool || loadedToolNames.has(name)) continue;
-				loadedToolNames.add(name);
-				deferredTools.push(tool);
-			}
-			if (deferredTools.length > 0 && options?.deferredToolsMode === "additional-tools") {
-				messages.push({
-					type: "additional_tools",
-					role: "developer",
-					tools: convertResponsesTools(deferredTools, options.toolOptions),
-				} as unknown as ResponseInputItem);
-			} else if (deferredTools.length > 0 && options?.deferredToolsMode === "tool-search") {
-				const names = deferredTools.map((tool) => tool.name);
-				const searchCallId = `pi_tool_load_${shortHash(`${msg.toolCallId}:${names.join(",")}`)}`;
-				messages.push({
-					type: "tool_search_call",
-					call_id: searchCallId,
-					execution: "client",
-					status: "completed",
-					arguments: { query: names.join(" "), limit: names.length },
-				} satisfies ResponseInputItem);
-				messages.push({
-					type: "tool_search_output",
-					call_id: searchCallId,
-					execution: "client",
-					status: "completed",
-					tools: convertResponsesTools(deferredTools, {
-						...options.toolOptions,
-						deferLoading: true,
-					}),
-				} satisfies ResponseToolSearchOutputItemParam);
-			}
+			appendDeferredTools(msg.addedToolNames ?? [], msg.toolCallId);
 		}
 		msgIndex++;
 	}

@@ -16,6 +16,7 @@ import { createNotebookControlProxy } from "./notebook-tool.ts";
 import type { PublicCodeModeRuntime } from "./public-tools.ts";
 import type {
 	CodeModeToolDefinition,
+	CodeModeToolMetadata,
 	CustomToolDefinition,
 	NotebookControlRequest,
 	NotebookControlResult,
@@ -59,6 +60,7 @@ export interface CodeModeRuntimeOptions {
 	cwd: string;
 	getTools(ctx?: ExtensionContext): CodeModeToolDefinition[];
 	getNotebookOptions(): NotebookRuntimeOptions;
+	onPromotedCustomToolsAdded?(tools: CodeModeToolMetadata[]): void;
 	richRendering?: boolean;
 }
 
@@ -67,6 +69,7 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 	private readonly cwd: string;
 	private readonly getTools: CodeModeRuntimeOptions["getTools"];
 	private readonly getNotebookOptions: CodeModeRuntimeOptions["getNotebookOptions"];
+	private readonly onPromotedCustomToolsAdded: CodeModeRuntimeOptions["onPromotedCustomToolsAdded"];
 	private readonly richRendering: boolean;
 	private clientPromise: Promise<CodeModeHostClient> | undefined;
 	private notebookClientPromise: Promise<CodeModeExecutionClient> | undefined;
@@ -75,6 +78,7 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 	private startupAbort: AbortController | undefined;
 	private preflightBroker: CodeModePreflightBroker | undefined;
 	private customPromptState = new Map<string, boolean>();
+	private announcedPromotedCustomTools = new Set<string>();
 	private promptSection: string | undefined;
 	private previousErrors = new Map<string, string>();
 	private executionKind: CodeModeExecutionKind = "code";
@@ -87,6 +91,7 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 		this.cwd = options.cwd;
 		this.getTools = options.getTools;
 		this.getNotebookOptions = options.getNotebookOptions;
+		this.onPromotedCustomToolsAdded = options.onPromotedCustomToolsAdded;
 		this.richRendering = options.richRendering ?? false;
 	}
 
@@ -162,11 +167,23 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 		const extensionContext = isExtensionContext(ctx) ? ctx : undefined;
 		const programmatic = this.getTools(extensionContext);
 		const custom = this.discoverCustomTools(extensionContext);
+		if (this.promptSection !== undefined) {
+			const added = custom.filter(
+				(tool) =>
+					!tool.deferLoading &&
+					this.customPromptState.get(tool.name) !== false &&
+					!this.announcedPromotedCustomTools.has(tool.name),
+			);
+			if (added.length > 0) {
+				for (const tool of added) this.announcedPromotedCustomTools.add(tool.name);
+				this.onPromotedCustomToolsAdded?.(added);
+			}
+		}
 		const tools = collectUniqueTools([
 			...programmatic,
 			...custom.map((tool) => ({
 				...tool,
-				deferLoading: this.customPromptState.get(tool.name) ?? tool.deferLoading,
+				deferLoading: this.customPromptState.get(tool.name) ?? true,
 			})),
 		]);
 		if (this.executionKind !== "notebook") return tools;
@@ -187,6 +204,7 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 		const programmatic = this.getTools();
 		const custom = this.discoverCustomToolsForTrust(projectTrusted);
 		this.customPromptState = new Map(custom.map((tool) => [tool.name, tool.deferLoading]));
+		this.announcedPromotedCustomTools.clear();
 		this.promptSection = buildCodeModeToolsPrompt(
 			collectUniqueTools([...programmatic, ...custom]),
 			codeModeCustomToolsDocumentationPath(),
@@ -197,6 +215,7 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 	resetPromptTools(): void {
 		this.promptSection = undefined;
 		this.customPromptState.clear();
+		this.announcedPromotedCustomTools.clear();
 	}
 
 	async shutdownHost(): Promise<void> {

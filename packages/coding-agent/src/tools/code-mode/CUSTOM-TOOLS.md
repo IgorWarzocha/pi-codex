@@ -11,7 +11,7 @@ Definitions are top-level `*.toml` files in either location:
 
 Only the active session working directory is checked; parent directories are not searched. Project-local definitions are ignored unless Pi trusts the project. A project-local definition replaces a global definition with the same tool name. Each filename becomes a JavaScript method on `tools`, so use a JavaScript-compatible identifier.
 
-Definitions remain live for execution, but the custom-tool prompt is snapshotted when a session starts. A promoted tool added or renamed during a session remains deferred until compaction, reload, or a new, resumed, or forked session. Compaction refreshes custom-tool promotion for subsequent turns.
+Definitions remain live for execution, but the custom-tool prompt is snapshotted when a session starts. A promoted tool added or renamed during a session remains deferred until compaction, reload, or a new, resumed, or forked session. When Pi discovers it, Pi appends its usage as a non-triggering developer capability update for the current session. Compaction refreshes custom-tool promotion for subsequent turns; later sessions include it in their initial system prompt.
 
 ```toml
 usage = 'await tools.port_info(port_number)'

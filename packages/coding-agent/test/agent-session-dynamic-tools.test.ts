@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { DeveloperMessage } from "@earendil-works/pi-ai";
 import { getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -160,7 +161,57 @@ describe("AgentSession dynamic tool registration", () => {
 		});
 		expect(session.getActiveToolNames()).toContain("dynamic_tool");
 		expect(session.systemPrompt).not.toContain("- dynamic_tool: Run dynamic test behavior");
-		expect(session.systemPrompt).toContain("- Use dynamic_tool when the user asks for dynamic behavior tests.");
+		expect(session.systemPrompt).not.toContain("Use dynamic_tool when the user asks for dynamic behavior tests.");
+		const availability = session.messages.find(
+			(message): message is DeveloperMessage =>
+				message.role === "developer" && message.addedToolNames?.includes("dynamic_tool") === true,
+		);
+		expect(availability).toMatchObject({ role: "developer", addedToolNames: ["dynamic_tool"] });
+		expect(JSON.stringify(availability?.content)).toContain("Run dynamic test behavior");
+		expect(JSON.stringify(availability?.content)).toContain(
+			"Use dynamic_tool when the user asks for dynamic behavior tests.",
+		);
+
+		session.dispose();
+	});
+
+	it("loads tools registered before session start into the initial system prompt", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const sessionManager = SessionManager.inMemory();
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+			extensionFactories: [
+				(pi) => {
+					pi.registerTool({
+						name: "initial_tool",
+						label: "Initial Tool",
+						description: "Tool registered during extension loading",
+						promptSnippet: "Run initial test behavior",
+						promptGuidelines: ["Use initial_tool for initial behavior tests."],
+						parameters: Type.Object({}),
+						execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
+					});
+				},
+			],
+		});
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager,
+			resourceLoader,
+		});
+		await session.bindExtensions({});
+
+		expect(session.getActiveToolNames()).toContain("initial_tool");
+		expect(session.systemPrompt).not.toContain("- initial_tool: Run initial test behavior");
+		expect(session.systemPrompt).toContain("- Use initial_tool for initial behavior tests.");
+		expect(session.messages.some((message) => message.role === "developer")).toBe(false);
 
 		session.dispose();
 	});
