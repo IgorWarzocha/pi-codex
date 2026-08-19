@@ -77,6 +77,7 @@ test("native compaction excludes voice-only chatter but preserves Pi delegations
 
 	assert.doesNotMatch(serialized, /voice-only conversation/);
 	assert.match(serialized, /Pi-visible delegation/);
+	assert.equal((input[0] as { role?: string }).role, "developer");
 });
 
 test("native compaction request routing reuses only the latest matching checkpoint", () => {

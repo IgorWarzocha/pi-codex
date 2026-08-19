@@ -25,10 +25,6 @@ export function extractFreshAuthoritativePreamble(
 	while (trailingBoundary > leadingBoundary && isPromptEnvelopeItem(payload.input[trailingBoundary - 1]!))
 		trailingBoundary -= 1;
 
-	for (let index = leadingBoundary; index < trailingBoundary; index++) {
-		if (isPromptEnvelopeItem(payload.input[index]!)) return undefined;
-	}
-
 	return {
 		...(typeof payload.instructions === "string" ? { instructions: payload.instructions } : {}),
 		leadingInput: payload.input

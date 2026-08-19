@@ -92,9 +92,9 @@ export function serializeConversation(messages: Message[]): string {
 	const parts: string[] = [];
 
 	for (const msg of messages) {
-		if (msg.role === "user") {
+		if (msg.role === "user" || msg.role === "developer") {
 			const content = contentText(msg.content, "");
-			if (content) parts.push(`[User]: ${content}`);
+			if (content) parts.push(`[${msg.role === "developer" ? "Developer" : "User"}]: ${content}`);
 		} else if (msg.role === "assistant") {
 			const thinkingParts: string[] = [];
 			const toolCalls: string[] = [];

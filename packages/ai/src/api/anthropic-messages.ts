@@ -1176,7 +1176,7 @@ function convertMessages(
 	for (let i = 0; i < transformedMessages.length; i++) {
 		const msg = transformedMessages[i];
 
-		if (msg.role === "user") {
+		if (msg.role === "user" || msg.role === "developer") {
 			if (typeof msg.content === "string") {
 				if (msg.content.trim().length > 0) {
 					params.push({

@@ -1117,14 +1117,29 @@ export function convertMessages(
 		const msg = transformedMessages[i];
 		// Some providers don't allow user messages directly after tool results
 		// Insert a synthetic assistant message to bridge the gap
-		if (compat.requiresAssistantAfterToolResult && lastRole === "toolResult" && msg.role === "user") {
+		if (
+			compat.requiresAssistantAfterToolResult &&
+			lastRole === "toolResult" &&
+			(msg.role === "user" || msg.role === "developer")
+		) {
 			params.push({
 				role: "assistant",
 				content: "I have processed the tool results.",
 			});
 		}
 
-		if (msg.role === "user") {
+		if (msg.role === "developer") {
+			const content =
+				typeof msg.content === "string"
+					? msg.content
+					: msg.content
+							.map((item) => (item.type === "text" ? item.text : "(image omitted from developer message)"))
+							.join("\n");
+			params.push({
+				role: compat.supportsDeveloperRole ? "developer" : "user",
+				content: sanitizeSurrogates(content),
+			});
+		} else if (msg.role === "user") {
 			if (typeof msg.content === "string") {
 				params.push({
 					role: "user",

@@ -184,10 +184,10 @@ export function convertResponsesMessages<TApi extends Api>(
 
 	let msgIndex = 0;
 	for (const msg of transformedMessages) {
-		if (msg.role === "user") {
+		if (msg.role === "user" || msg.role === "developer") {
 			if (typeof msg.content === "string") {
 				messages.push({
-					role: "user",
+					role: msg.role,
 					content: [{ type: "input_text", text: sanitizeSurrogates(msg.content) }],
 				});
 			} else {
@@ -206,7 +206,7 @@ export function convertResponsesMessages<TApi extends Api>(
 				});
 				if (content.length === 0) continue;
 				messages.push({
-					role: "user",
+					role: msg.role,
 					content,
 				});
 			}

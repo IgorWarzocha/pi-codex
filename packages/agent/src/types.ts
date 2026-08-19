@@ -152,7 +152,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	/**
 	 * Converts AgentMessage[] to LLM-compatible Message[] before each LLM call.
 	 *
-	 * Each AgentMessage must be converted to a UserMessage, AssistantMessage, or ToolResultMessage
+	 * Each AgentMessage must be converted to a UserMessage, DeveloperMessage, AssistantMessage, or ToolResultMessage
 	 * that the LLM can understand. AgentMessages that cannot be converted (e.g., UI-only notifications,
 	 * status messages) should be filtered out.
 	 *
@@ -163,8 +163,8 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * ```typescript
 	 * convertToLlm: (messages) => messages.flatMap(m => {
 	 *   if (m.role === "custom") {
-	 *     // Convert custom message to user message
-	 *     return [{ role: "user", content: m.content, timestamp: m.timestamp }];
+	 *     // Preserve application-authored context separately from user input
+	 *     return [{ role: "developer", content: m.content, timestamp: m.timestamp }];
 	 *   }
 	 *   if (m.role === "notification") {
 	 *     // Filter out UI-only messages

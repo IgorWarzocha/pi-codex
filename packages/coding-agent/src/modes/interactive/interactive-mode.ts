@@ -3608,6 +3608,10 @@ export class InteractiveMode {
 				}
 				break;
 			}
+			case "developer": {
+				// Developer context is persisted for the model, not presented as user-authored chat.
+				break;
+			}
 			case "assistant": {
 				const assistantComponent = new AssistantMessageComponent(
 					message,
@@ -3783,7 +3787,8 @@ export class InteractiveMode {
 		} else if (miss.idleMs >= CACHE_TTL_MS) {
 			label = `Cache miss after ${Math.round(miss.idleMs / 60_000)}m idle`;
 		}
-		const text = theme.fg("warning", `${label}: ${reBilled}`);
+		const path = miss.requestPath ? ` · ${miss.requestPath}` : "";
+		const text = theme.fg("warning", `${label}${path}: ${reBilled}`);
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(text, 1, 0));
 	}

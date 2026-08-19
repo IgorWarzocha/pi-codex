@@ -20,6 +20,7 @@
 - Pi-Codex now builds its compact system prompt directly from runtime guidance, project instructions, skills, shell context, and the working directory instead of constructing and rewriting Pi's stock prompt before each turn.
 - The native fork now ignores `@howaboua/pi-codex-conversion` wherever it appears in extension configuration, preventing the superseded extension from loading alongside its built-in replacement.
 - Codex cache prewarming, diagnostics, and Responses Compaction V2 now run as session-native services with the final prompt and ordered agent tools, rather than reconstructing provider state through extension hooks and global symbol bridges.
+- Extension-injected context now remains developer-authored through provider serialization and native compaction instead of being rewritten as user input.
 
 ### Removed
 
@@ -28,6 +29,7 @@
 ### Fixed
 
 - Fixed transient Notebook startup failures when another local process claims a reserved Jupyter port before the kernel binds it.
+- Fixed Codex cache miss notices to report the transport and continuation path and use the provider's 30-minute cache TTL.
 - Fixed the subagent example repeatedly prompting before running project-local agents in trusted repositories ([#8261](https://github.com/earendil-works/pi/issues/8261)).
 - Added `session_compact_failed` extension events so compaction failures and aborts expose their reason, retry state, source, and error message to handlers ([#8175](https://github.com/earendil-works/pi/issues/8175)).
 - Fixed npm package update checks treating older registry versions as available updates, preventing `pi update` from downgrading already-newer installed packages ([#8226](https://github.com/earendil-works/pi/issues/8226)).

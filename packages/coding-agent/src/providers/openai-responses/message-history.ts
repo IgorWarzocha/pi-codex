@@ -38,7 +38,7 @@ function replaceImagesWithPlaceholder(
 function downgradeUnsupportedImages(messages: Context["messages"], model: Model<Api>): Context["messages"] {
 	if (model.input.includes("image")) return messages;
 	return messages.map((msg) => {
-		if (msg.role === "user" && Array.isArray(msg.content)) {
+		if ((msg.role === "user" || msg.role === "developer") && Array.isArray(msg.content)) {
 			return { ...msg, content: replaceImagesWithPlaceholder(msg.content, NON_VISION_USER_IMAGE_PLACEHOLDER) };
 		}
 		if (msg.role === "toolResult") {
@@ -60,7 +60,7 @@ export function normalizeResponsesMessageHistory(
 	const toolCallIdMap = new Map<string, string>();
 	const imageAwareMessages = downgradeUnsupportedImages(messages, model);
 	const transformed = imageAwareMessages.map((msg) => {
-		if (msg.role === "user") return msg;
+		if (msg.role === "user" || msg.role === "developer") return msg;
 		if (msg.role === "toolResult") {
 			const normalizedId = toolCallIdMap.get(msg.toolCallId);
 			return normalizedId && normalizedId !== msg.toolCallId ? { ...msg, toolCallId: normalizedId } : msg;
@@ -155,7 +155,7 @@ export function normalizeResponsesMessageHistory(
 			result.push(msg);
 			continue;
 		}
-		if (msg.role === "user") {
+		if (msg.role === "user" || msg.role === "developer") {
 			insertSyntheticToolResults();
 			result.push(msg);
 			continue;

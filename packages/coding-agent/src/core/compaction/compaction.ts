@@ -323,7 +323,8 @@ export function estimateTokens(message: AgentMessage): number {
 	let chars = 0;
 
 	switch (message.role) {
-		case "user": {
+		case "user":
+		case "developer": {
 			chars = estimateTextAndImageContentChars(
 				(message as { content: string | Array<{ type: string; text?: string }> }).content,
 			);
@@ -364,6 +365,7 @@ export function estimateTokens(message: AgentMessage): number {
 function isCutPointMessage(message: AgentMessage): boolean {
 	switch (message.role) {
 		case "user":
+		case "developer":
 		case "assistant":
 		case "bashExecution":
 		case "custom":
@@ -379,6 +381,7 @@ function isCutPointMessage(message: AgentMessage): boolean {
 function isTurnStartMessage(message: AgentMessage): boolean {
 	switch (message.role) {
 		case "user":
+		case "developer":
 		case "bashExecution":
 		case "custom":
 		case "branchSummary":

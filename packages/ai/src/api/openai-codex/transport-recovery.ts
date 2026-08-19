@@ -67,6 +67,7 @@ import {
 } from "./turn-state.ts";
 import type {
 	CanonicalHistoryDecision,
+	CodexDiagnosticsEvent,
 	CodexDiagnosticsLane,
 	CodexDiagnosticsSink,
 	OpenAICodexStreamOptions,
@@ -119,6 +120,26 @@ function recordUsage(
 		cachedInputTokens: output.usage.cacheRead,
 		cacheWriteInputTokens: output.usage.cacheWrite,
 		outputTokens: output.usage.output,
+	});
+}
+
+type CodexRequestDiagnostic = Extract<CodexDiagnosticsEvent, { type: "request" }>;
+
+function appendCodexCacheDiagnostic(output: AssistantMessage, request: CodexRequestDiagnostic | undefined): void {
+	if (!request) return;
+	appendAssistantMessageDiagnostic(output, {
+		type: "openai_codex_cache",
+		timestamp: Date.now(),
+		details: {
+			transport: request.transport,
+			attempt: request.attempt,
+			fullInputItems: request.fullInputItems,
+			sentInputItems: request.sentInputItems,
+			socketReused: request.socketReused,
+			continuation: request.continuation,
+			canonicalHistory: request.canonicalHistory,
+			previousResponseId: request.previousResponseId,
+		},
 	});
 }
 
@@ -251,6 +272,11 @@ export function createCodexTransportStream<TApi extends Api>(
 	(async () => {
 		let output = createInitialAssistantMessage(model);
 		const diagnostics = noThrowCodexDiagnosticsSink(effectiveOptions?.diagnostics);
+		let latestRequestDiagnostic: CodexRequestDiagnostic | undefined;
+		const recordRequestDiagnostic: CodexDiagnosticsSink = (event) => {
+			if (event.type === "request") latestRequestDiagnostic = event;
+			diagnostics?.(event);
+		};
 		let lane: Exclude<CodexDiagnosticsLane, "prewarm"> = "response";
 		let diagnosticsFailureRecorded = false;
 		const recordFailure = (transport: "websocket" | "sse", error: unknown) => {
@@ -370,7 +396,7 @@ export function createCodexTransportStream<TApi extends Api>(
 							},
 							effectiveOptions,
 							effectiveOptions?.turnState,
-							diagnostics ? { lane, attempt: attempt + 1, record: diagnostics } : undefined,
+							{ lane, attempt: attempt + 1, record: recordRequestDiagnostic },
 							{
 								reconstructedRequestBody: reconstructedBody,
 								token: canonicalSessionToken,
@@ -381,6 +407,7 @@ export function createCodexTransportStream<TApi extends Api>(
 						finalizeUsage(output);
 						assertSuccessfulCodexOutput(output);
 						recordUsage(diagnostics, lane, "websocket", output);
+						appendCodexCacheDiagnostic(output, latestRequestDiagnostic);
 						stream.push({ type: "done", reason: output.stopReason, message: output });
 						stream.end();
 						return;
@@ -483,7 +510,7 @@ export function createCodexTransportStream<TApi extends Api>(
 							sentInputItems: body.input.length,
 						});
 					}
-					diagnostics?.({
+					recordRequestDiagnostic({
 						type: "request",
 						lane,
 						transport: "sse",
@@ -519,6 +546,7 @@ export function createCodexTransportStream<TApi extends Api>(
 					if (effectiveOptions?.signal?.aborted) throw new Error("Request was aborted");
 					assertSuccessfulCodexOutput(output);
 					recordUsage(diagnostics, lane, "sse", output);
+					appendCodexCacheDiagnostic(output, latestRequestDiagnostic);
 					for (const item of responseItems) effectiveOptions?.onOutputItemDone?.(item);
 					recordCanonicalSessionResponse({
 						sessionId: effectiveOptions?.sessionId,

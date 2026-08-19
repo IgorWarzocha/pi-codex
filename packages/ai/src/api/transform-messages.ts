@@ -38,7 +38,7 @@ function downgradeUnsupportedImages<TApi extends Api>(messages: Message[], model
 	}
 
 	return messages.map((msg) => {
-		if (msg.role === "user" && Array.isArray(msg.content)) {
+		if ((msg.role === "user" || msg.role === "developer") && Array.isArray(msg.content)) {
 			return {
 				...msg,
 				content: replaceImagesWithPlaceholder(msg.content, NON_VISION_USER_IMAGE_PLACEHOLDER),
@@ -75,8 +75,8 @@ export function transformMessages<TApi extends Api>(
 
 	// First pass: transform messages (unsupported image downgrade, thinking blocks, tool call ID normalization)
 	const transformed = imageAwareMessages.map((msg) => {
-		// User messages pass through unchanged
-		if (msg.role === "user") {
+		// User and developer messages pass through unchanged
+		if (msg.role === "user" || msg.role === "developer") {
 			return msg;
 		}
 
@@ -207,8 +207,8 @@ export function transformMessages<TApi extends Api>(
 		} else if (msg.role === "toolResult") {
 			existingToolResultIds.add(msg.toolCallId);
 			result.push(msg);
-		} else if (msg.role === "user") {
-			// User message interrupts tool flow - insert synthetic results for orphaned calls
+		} else if (msg.role === "user" || msg.role === "developer") {
+			// New input interrupts tool flow - insert synthetic results for orphaned calls
 			insertSyntheticToolResults();
 			result.push(msg);
 		} else {

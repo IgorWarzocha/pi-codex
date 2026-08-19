@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
 	Api,
+	DeveloperMessage,
 	ImageContent,
 	Message,
 	Model,
@@ -131,7 +132,7 @@ function readBlockImagesSetting(): boolean {
 	return cachedBlockImagesSetting;
 }
 
-function replaceImagesWithDisabledPlaceholder<TMessage extends UserMessage | ToolResultMessage>(
+function replaceImagesWithDisabledPlaceholder<TMessage extends UserMessage | DeveloperMessage | ToolResultMessage>(
 	message: TMessage,
 ): TMessage {
 	if (!Array.isArray(message.content) || !message.content.some((item) => item.type === "image")) return message;
@@ -154,7 +155,7 @@ function replaceImagesWithDisabledPlaceholder<TMessage extends UserMessage | Too
 function applyBlockImages(messages: Message[], blockImages: boolean): Message[] {
 	if (!blockImages) return messages;
 	return messages.map((message) => {
-		if (message.role === "user" || message.role === "toolResult")
+		if (message.role === "user" || message.role === "developer" || message.role === "toolResult")
 			return replaceImagesWithDisabledPlaceholder(message);
 		return message;
 	});

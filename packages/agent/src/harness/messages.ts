@@ -137,7 +137,7 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 				case "custom": {
 					const content = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;
 					return {
-						role: "user",
+						role: "developer",
 						content,
 						timestamp: m.timestamp,
 					};
@@ -157,6 +157,7 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						timestamp: m.timestamp,
 					};
 				case "user":
+				case "developer":
 				case "assistant":
 				case "toolResult":
 					return m;

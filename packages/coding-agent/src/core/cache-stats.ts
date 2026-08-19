@@ -3,9 +3,9 @@ import type { SessionEntry } from "./session-manager.ts";
 
 /**
  * Prompt-cache TTL: idle gaps longer than this are worth mentioning as the
- * likely cause of a miss. Anthropic's default cache TTL is 5 minutes.
+ * likely cause of a miss. OpenAI Codex prompt caches expire after 30 minutes.
  */
-export const CACHE_TTL_MS = 5 * 60 * 1000;
+export const CACHE_TTL_MS = 30 * 60 * 1000;
 
 /** Per-turn misses at or below this are cache breakpoint granularity noise. */
 const NOISE_FLOOR_TOKENS = 1024;
@@ -20,6 +20,8 @@ export interface CacheMiss {
 	idleMs: number;
 	/** True when the model changed relative to the previous request. */
 	modelChanged: boolean;
+	/** Provider request path associated with the miss, when reported. */
+	requestPath?: string;
 }
 
 export interface CacheWasteTotals {
@@ -45,6 +47,24 @@ interface PreviousRequest {
 	 * writes unreported) from a provider that never reports caching at all.
 	 */
 	reportedCache: boolean;
+}
+
+function codexRequestPath(message: AssistantMessage): string | undefined {
+	let details: Record<string, unknown> | undefined;
+	for (let index = (message.diagnostics?.length ?? 0) - 1; index >= 0; index--) {
+		const candidate = message.diagnostics?.[index];
+		if (candidate?.type !== "openai_codex_cache") continue;
+		details = candidate.details;
+		break;
+	}
+	const transport = details?.["transport"];
+	if (transport === "sse") return "SSE full";
+	if (transport !== "websocket") return undefined;
+	const continuation = details?.["continuation"];
+	if (continuation === "delta") return "WS delta";
+	return typeof continuation === "string" && continuation.length > 0
+		? `WS full (${continuation.replaceAll("_", " ")})`
+		: "WS full";
 }
 
 /**
@@ -81,11 +101,13 @@ function detectMiss(
 			? usage.cost.cacheRead / usage.cacheRead
 			: (models.getModel(message.provider, message.model)?.cost.cacheRead ?? 0) / 1_000_000;
 
+	const requestPath = codexRequestPath(message);
 	return {
 		missedTokens,
 		missedCost: missedTokens * Math.max(0, paidPerToken - readPerToken),
 		idleMs: Math.max(0, message.timestamp - prev.timestamp),
 		modelChanged: `${message.provider}/${message.model}` !== prev.modelKey,
+		...(requestPath ? { requestPath } : {}),
 	};
 }
 

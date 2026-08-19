@@ -422,6 +422,13 @@ export interface UserMessage {
 	timestamp: number; // Unix timestamp in milliseconds
 }
 
+/** Application-authored instructions that remain distinct from user input in session history. */
+export interface DeveloperMessage {
+	role: "developer";
+	content: string | (TextContent | ImageContent)[];
+	timestamp: number; // Unix timestamp in milliseconds
+}
+
 export interface AssistantMessage {
 	role: "assistant";
 	content: (TextContent | ThinkingContent | ToolCall)[];
@@ -430,7 +437,7 @@ export interface AssistantMessage {
 	model: string;
 	responseModel?: string; // Concrete `chunk.model` when different from the requested `model` (e.g. OpenRouter `auto` -> `anthropic/...`)
 	responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
-	diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics for failures and recoveries.
+	diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics and request telemetry.
 	usage: Usage;
 	stopReason: StopReason;
 	deferred?: DeferredHandle;
@@ -462,7 +469,7 @@ export interface ToolResultMessage<TDetails = any> {
 	timestamp: number; // Unix timestamp in milliseconds
 }
 
-export type Message = UserMessage | AssistantMessage | ToolResultMessage;
+export type Message = UserMessage | DeveloperMessage | AssistantMessage | ToolResultMessage;
 
 export type ImagesInputContent = TextContent | ImageContent;
 export type ImagesOutputContent = TextContent | ImageContent;

@@ -99,18 +99,19 @@ function isContextualText(text: string): boolean {
 	);
 }
 
-function retainedRealUserMessage(item: unknown): Record<string, unknown> | undefined {
+function retainedClientMessage(item: unknown): Record<string, unknown> | undefined {
 	if (
 		!isRecord(item) ||
 		(item["type"] !== undefined && item["type"] !== "message") ||
-		item["role"] !== "user" ||
+		(item["role"] !== "user" && item["role"] !== "developer") ||
 		!Array.isArray(item["content"])
 	)
 		return undefined;
+	const role = item["role"];
 	const content = item["content"].filter((part) => {
 		if (!isRecord(part)) return false;
 		if (part["type"] !== "input_text" || typeof part["text"] !== "string") return true;
-		return !isHookPrompt(part["text"]) && !isContextualText(part["text"]);
+		return role === "developer" || (!isHookPrompt(part["text"]) && !isContextualText(part["text"]));
 	});
 	return content.length > 0
 		? { ...structuredClone(item), type: "message", content: structuredClone(content) }
@@ -150,7 +151,7 @@ export function buildRemoteCompactionV2Window(
 				(item["type"] === undefined || item["type"] === "message") &&
 				(item["role"] === "user" || item["role"] === "developer" || item["role"] === "system"),
 		)
-		.map(retainedRealUserMessage)
+		.map(retainedClientMessage)
 		.filter((item): item is Record<string, unknown> => item !== undefined);
 	let remaining = Math.max(0, Math.floor(maxTokens));
 	const reversed: Record<string, unknown>[] = [];

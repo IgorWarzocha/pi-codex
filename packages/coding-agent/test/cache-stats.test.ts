@@ -127,6 +127,19 @@ describe("detectCacheMiss", () => {
 		expect(miss?.modelChanged).toBe(true);
 	});
 
+	it("includes the Codex request path", () => {
+		const missMessage = assistant({ cacheWrite: 110_000, cost: { cacheWrite: 0.4125 }, timestamp: 120_000 });
+		missMessage.diagnostics = [
+			{
+				type: "openai_codex_cache",
+				timestamp: 120_000,
+				details: { transport: "websocket", continuation: "body_mismatch" },
+			},
+		];
+		const miss = detectCacheMiss([entry(turn1), entry(turn2)], missMessage, models);
+		expect(miss?.requestPath).toBe("WS full (body mismatch)");
+	});
+
 	it("returns undefined for healthy turns", () => {
 		const healthy = assistant({
 			cacheRead: 105_000,

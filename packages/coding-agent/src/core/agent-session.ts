@@ -660,6 +660,7 @@ export class AgentSession {
 				);
 			} else if (
 				event.message.role === "user" ||
+				event.message.role === "developer" ||
 				event.message.role === "assistant" ||
 				event.message.role === "toolResult"
 			) {
@@ -784,6 +785,7 @@ export class AgentSession {
 				// normalize so it never enters agent state or session history.
 				const normalized =
 					(replacement.role === "user" ||
+						replacement.role === "developer" ||
 						replacement.role === "assistant" ||
 						replacement.role === "toolResult" ||
 						replacement.role === "custom") &&

@@ -10,7 +10,7 @@ export function inferCopilotInitiator(messages: Message[]): "user" | "agent" {
 // Copilot requires Copilot-Vision-Request header when sending images
 export function hasCopilotVisionInput(messages: Message[]): boolean {
 	return messages.some((msg) => {
-		if (msg.role === "user" && Array.isArray(msg.content)) {
+		if ((msg.role === "user" || msg.role === "developer") && Array.isArray(msg.content)) {
 			return msg.content.some((c) => c.type === "image");
 		}
 		if (msg.role === "toolResult" && Array.isArray(msg.content)) {

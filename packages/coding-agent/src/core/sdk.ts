@@ -246,7 +246,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		}
 		// Filter out ImageContent from all messages, replacing with text placeholder
 		return converted.map((msg) => {
-			if (msg.role === "user" || msg.role === "toolResult") {
+			if (msg.role === "user" || msg.role === "developer" || msg.role === "toolResult") {
 				const content = msg.content;
 				if (Array.isArray(content)) {
 					const hasImages = content.some((c) => c.type === "image");

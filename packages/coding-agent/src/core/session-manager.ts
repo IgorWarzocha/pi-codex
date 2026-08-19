@@ -125,7 +125,7 @@ export interface SessionInfoEntry extends SessionEntryBase {
  * Use customType to identify your extension's entries.
  *
  * Unlike CustomEntry, this DOES participate in LLM context.
- * The content is converted to a user message in buildSessionContext().
+ * The content is converted to a developer message in buildSessionContext().
  * Use details for extension-specific metadata (not sent to LLM).
  *
  * display controls TUI rendering:
@@ -386,7 +386,10 @@ export function sessionEntryToContextMessages(entry: SessionEntry): AgentMessage
 		// Session files are parsed without validation; old versions, forks, or
 		// hand-edited files can contain messages with null/missing content.
 		if (
-			(message.role === "user" || message.role === "assistant" || message.role === "toolResult") &&
+			(message.role === "user" ||
+				message.role === "developer" ||
+				message.role === "assistant" ||
+				message.role === "toolResult") &&
 			message.content == null
 		) {
 			return [{ ...message, content: [] }];

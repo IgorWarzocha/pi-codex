@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Preserved canonical developer messages when preparing model context.
+
 ## [0.84.2] - 2026-08-14
 
 ### Fixed

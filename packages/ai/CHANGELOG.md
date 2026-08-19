@@ -9,11 +9,13 @@
 ### Added
 
 - Added provider-neutral `toolChoice` support to simple stream requests.
+- Added canonical developer messages for preserving application-authored session instructions separately from user input.
 
 ### Changed
 
 - Replaced the built-in OpenAI Codex provider with the native pi-codex implementation, including proxy-aware Undici WebSockets, fresh connection recovery, sticky SSE fallback, cached continuation, Responses Lite image processing, prewarming, turn-state replay, native compaction continuity, cache diagnostics, bounded overload recovery, native OAuth scopes, and Daybreak models.
 - Exposed Codex prewarming, diagnostics, and canonical compaction continuity through the native provider module instead of process-global extension registries.
+- Added the final Codex transport and continuation path to successful assistant diagnostics for cache reporting.
 
 ### Fixed
 

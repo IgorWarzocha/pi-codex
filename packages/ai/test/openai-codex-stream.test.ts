@@ -205,6 +205,34 @@ describe("openai-codex provider", () => {
 		expect(body).not.toHaveProperty("max_completion_tokens");
 	});
 
+	it("preserves session developer messages and records the request path", async () => {
+		let requestBody: Record<string, unknown> | undefined;
+		const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+			requestBody = decodeBody(init?.body);
+			return sseResponse(completedResponse("resp_developer"));
+		});
+		const result = await stream(
+			model,
+			{
+				systemPrompt: "Instructions",
+				messages: [
+					{ role: "developer", content: "Application context", timestamp: 1 },
+					{ role: "user", content: "User request", timestamp: 2 },
+				],
+			},
+			{ apiKey: token(), transport: "sse", fetch: fetchMock },
+		).result();
+
+		expect(requestBody?.input).toEqual([
+			{ role: "developer", content: [{ type: "input_text", text: "Application context" }] },
+			{ role: "user", content: [{ type: "input_text", text: "User request" }] },
+		]);
+		expect(result.diagnostics?.at(-1)).toMatchObject({
+			type: "openai_codex_cache",
+			details: { transport: "sse", fullInputItems: 2, sentInputItems: 2 },
+		});
+	});
+
 	it("keeps Fast Mode routing identical across transports", () => {
 		const routing = resolveCodexRequestRouting({
 			model: model.id,
@@ -464,7 +492,7 @@ describe("openai-codex provider", () => {
 				{ role: "user", content: "Second user", timestamp: 2 },
 			],
 		};
-		await stream(model, secondContext, options).result();
+		const second = await stream(model, secondContext, options).result();
 
 		expect(ScriptedWebSocket.opened).toBe(1);
 		expect(ScriptedWebSocket.sent[1]?.previous_response_id).toBe("resp_1");
@@ -474,6 +502,10 @@ describe("openai-codex provider", () => {
 				content: [{ type: "input_text", text: "Second user" }],
 			},
 		]);
+		expect(second.diagnostics?.at(-1)).toMatchObject({
+			type: "openai_codex_cache",
+			details: { transport: "websocket", socketReused: true, continuation: "delta" },
+		});
 		expect(getOpenAICodexWebSocketDebugStats("delta-session")).toMatchObject({
 			requests: 2,
 			connectionsCreated: 1,

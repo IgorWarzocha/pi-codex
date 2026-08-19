@@ -2,6 +2,7 @@ import {
 	type Api,
 	type AssistantMessage,
 	createModels,
+	type DeveloperMessage,
 	type FauxProviderHandle,
 	fauxAssistantMessage,
 	fauxProvider,
@@ -59,6 +60,14 @@ function createMockUsage(input: number, output: number, cacheRead = 0, cacheWrit
 function createUserMessage(text: string): AgentMessage {
 	return {
 		role: "user",
+		content: [{ type: "text", text }],
+		timestamp: Date.now(),
+	};
+}
+
+function createDeveloperMessage(text: string): DeveloperMessage {
+	return {
+		role: "developer",
 		content: [{ type: "text", text }],
 		timestamp: Date.now(),
 	};
@@ -218,6 +227,7 @@ describe("harness compaction", () => {
 		};
 		expect(findTurnStartIndex([thinking, branchSummary], 1, 0)).toBe(1);
 		expect(findTurnStartIndex([thinking, modelChange], 1, 0)).toBe(-1);
+		expect(findTurnStartIndex([thinking, createMessageEntry(createDeveloperMessage("policy"))], 1, 0)).toBe(1);
 
 		const result = findCutPoint([thinking, branchSummary], 0, 2, 1);
 		expect(result.firstKeptEntryIndex).toBe(0);
@@ -293,6 +303,7 @@ describe("harness compaction", () => {
 		};
 
 		expect(estimateTokens({ role: "user", content: "plain user", timestamp: Date.now() })).toBeGreaterThan(0);
+		expect(estimateTokens(createDeveloperMessage("developer policy"))).toBeGreaterThan(0);
 		expect(estimateTokens(assistantWithThinkingAndTool)).toBeGreaterThan(0);
 		expect(estimateTokens(customString)).toBeGreaterThan(0);
 		expect(estimateTokens(toolResultWithImage)).toBeGreaterThan(1000);
@@ -441,6 +452,7 @@ describe("harness compaction", () => {
 	it("serializes conversation with truncated tool results", () => {
 		const longContent = "x".repeat(5000);
 		const messages = convertMessages([
+			createDeveloperMessage("application policy"),
 			{
 				role: "toolResult",
 				toolCallId: "tc1",
@@ -451,6 +463,7 @@ describe("harness compaction", () => {
 			},
 		]);
 		const result = serializeConversation(messages);
+		expect(result).toContain("[Developer]: application policy");
 		expect(result).toContain("[Tool result]:");
 		expect(result).toContain("[... 3000 more characters truncated]");
 	});

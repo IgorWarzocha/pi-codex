@@ -158,9 +158,9 @@ export function convertResponsesMessages<TApi extends Api>(
 
 	let msgIndex = 0;
 	for (const msg of transformedMessages) {
-		if (msg.role === "user") {
+		if (msg.role === "user" || msg.role === "developer") {
 			if (typeof msg.content === "string") {
-				messages.push({ role: "user", content: [{ type: "input_text", text: sanitizeSurrogates(msg.content) }] });
+				messages.push({ role: msg.role, content: [{ type: "input_text", text: sanitizeSurrogates(msg.content) }] });
 			} else {
 				const content = msg.content.map((item) =>
 					item.type === "text"
@@ -171,7 +171,7 @@ export function convertResponsesMessages<TApi extends Api>(
 								image_url: `data:${item.mimeType};base64,${item.data}`,
 							},
 				);
-				if (content.length > 0) messages.push({ role: "user", content });
+				if (content.length > 0) messages.push({ role: msg.role, content });
 			}
 		} else if (msg.role === "assistant") {
 			const output: ResponseInput = [];

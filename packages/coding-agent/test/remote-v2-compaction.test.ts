@@ -17,10 +17,15 @@ test("Responses compaction v2 retains real turns and reconciles tool history", (
 			{ type: "input_text", text: '<hook_prompt hook_run_id="injected">hidden hook</hook_prompt>' },
 		],
 	};
+	const developer = {
+		role: "developer",
+		content: [{ type: "input_text", text: "application policy" }],
+	};
 	const normalized = normalizeRemoteCompactionV2PromptInput([
 		{ type: "function_call_output", call_id: "orphan", output: "drop" },
 		{ type: "function_call", id: "fc_pending", call_id: "pending", name: "exec", arguments: "{}" },
 		contextual,
+		developer,
 		real,
 	]);
 	const window = buildRemoteCompactionV2Window(normalized, { type: "compaction", encrypted_content: "sealed" });
@@ -40,6 +45,7 @@ test("Responses compaction v2 retains real turns and reconciles tool history", (
 	assert.deepEqual(normalizeRemoteCompactionV2PromptInput(normalized), normalized);
 	assert.doesNotMatch(JSON.stringify(window), /private scaffolding|hidden hook|orphan/);
 	assert.match(JSON.stringify(window), /remember this exactly/);
+	assert.match(JSON.stringify(window), /application policy/);
 	assert.equal(window.at(-1)?.["encrypted_content"], "sealed");
 });
 

@@ -887,7 +887,8 @@ function convertMessages(
 		const m = transformedMessages[i];
 
 		switch (m.role) {
-			case "user": {
+			case "user":
+			case "developer": {
 				const content: ContentBlock[] = [];
 				if (typeof m.content === "string") {
 					content.push(createRequiredTextBlock(m.content));
