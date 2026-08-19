@@ -45,6 +45,14 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).not.toContain("Use exec_command for shell commands, file inspection");
 	});
 
+	test("treats Notebook globals as multi-cell working memory", () => {
+		const prompt = buildSystemPrompt({ cwd: "/workspace", shell: "/bin/bash", mode: "notebook" });
+
+		expect(prompt).toContain("use purpose-named globalThis properties as deliberate working memory across cells");
+		expect(prompt).toContain("verified cwd or repo roots, target paths, host facts, task decisions, parsed indexes");
+		expect(prompt).toContain("update them instead of re-probing and release them when stale or done");
+	});
+
 	test("announces important skills and lazy categories without exposing package paths", () => {
 		const skill = (name: string, category?: string): Skill => ({
 			name,
