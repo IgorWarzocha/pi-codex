@@ -99,6 +99,7 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
+import { NestedContextManager } from "./nested-context/index.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
@@ -374,6 +375,7 @@ export class AgentSession {
 	private _extensionErrorUnsubscriber?: () => void;
 
 	private _modelRuntime: ModelRuntime;
+	private readonly _nestedContextManager: NestedContextManager;
 	private readonly _codexToolRuntime: CodexToolRuntime;
 	private readonly _codexSessionRuntime: CodexSessionRuntime;
 	private _codexExecutionMode: CodexExecutionMode;
@@ -405,6 +407,12 @@ export class AgentSession {
 		this._resourceLoader = config.resourceLoader;
 		this._customTools = config.customTools ?? [];
 		this._cwd = config.cwd;
+		this._nestedContextManager = new NestedContextManager({
+			cwd: config.cwd,
+			enabled: config.resourceLoader.isContextFilesEnabled?.() ?? true,
+			startupFiles: config.resourceLoader.getAgentsFiles().agentsFiles,
+			messages: config.agent.state.messages,
+		});
 		this._codexToolRuntime = createCodexToolRuntime({
 			agentDir: config.agentDir ?? getAgentDir(),
 			cwd: config.cwd,
@@ -528,18 +536,43 @@ export class AgentSession {
 				: undefined;
 
 			const content = hookResult?.content ?? result.content ?? [];
+			const details = hookResult?.details ?? result.details;
+			const nestedContextResult = await this._nestedContextManager.transform({
+				toolName: toolCall.name,
+				input: args as Record<string, unknown>,
+				content,
+				details,
+				isError: hookResult?.isError ?? effectiveIsError,
+			});
+			if (this._extensionUIContext) {
+				for (const error of nestedContextResult?.errors ?? []) {
+					this._extensionUIContext.notify(`Failed to load ${error.path}: ${error.message}`, "warning");
+				}
+				if (nestedContextResult?.loadedPaths.length === 1) {
+					this._extensionUIContext.notify(
+						`Loaded AGENTS.md context: ${nestedContextResult.loadedPaths[0]}`,
+						"info",
+					);
+				} else if (nestedContextResult && nestedContextResult.loadedPaths.length > 1) {
+					this._extensionUIContext.notify(
+						`Loaded AGENTS.md context (${nestedContextResult.loadedPaths.length} files)`,
+						"info",
+					);
+				}
+			}
+			const effectiveContent = nestedContextResult?.content ?? content;
 			// Runs after the extension hook so images injected or replaced by extensions are normalized too.
-			const normalizedContent = await normalizeToolResultImages(content, {
+			const normalizedContent = await normalizeToolResultImages(effectiveContent, {
 				autoResizeImages: this.settingsManager.getImageAutoResize(),
 			});
 
-			if (!hookResult && normalizedContent === content && effectiveIsError === isError) {
+			if (!hookResult && !nestedContextResult && normalizedContent === content && effectiveIsError === isError) {
 				return undefined;
 			}
 
 			return {
 				content: normalizedContent,
-				details: hookResult?.details,
+				details: nestedContextResult?.details ?? hookResult?.details,
 				isError: hookResult?.isError ?? effectiveIsError,
 				usage: hookResult?.usage,
 			};
@@ -568,6 +601,14 @@ export class AgentSession {
 				thinkingLevel: this.agent.state.thinkingLevel,
 			};
 		};
+	}
+
+	private _resetNestedContext(): void {
+		this._nestedContextManager.configure({
+			enabled: this._resourceLoader.isContextFilesEnabled?.() ?? true,
+			startupFiles: this._resourceLoader.getAgentsFiles().agentsFiles,
+			messages: this.agent.state.messages,
+		});
 	}
 
 	// =========================================================================
@@ -2105,6 +2146,7 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
+			this._resetNestedContext();
 			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
 
 			// Get the saved compaction entry for the extension event
@@ -2453,6 +2495,7 @@ export class AgentSession {
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
+			this._resetNestedContext();
 			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
 
 			// Get the saved compaction entry for the extension event
@@ -2944,6 +2987,7 @@ export class AgentSession {
 		await this.settingsManager.reload();
 		this.syncQueueModesFromSettings();
 		await this._resourceLoader.reload();
+		this._resetNestedContext();
 		this._buildRuntime({
 			activeToolNames: this.getActiveToolNames(),
 			flagValues: previousFlagValues,
@@ -3419,6 +3463,7 @@ export class AgentSession {
 			// Update agent state
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
+			this._resetNestedContext();
 
 			// Emit session_tree event
 			await this._extensionRunner.emit({

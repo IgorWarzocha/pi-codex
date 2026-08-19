@@ -8,6 +8,7 @@ import type { ResourceDiagnostic } from "./diagnostics.ts";
 export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.ts";
 
 import { canonicalizePath, isLocalPath, resolvePath } from "../utils/paths.ts";
+import { loadContextFileFromDir } from "./context-files.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
 import {
 	clearExtensionCache,
@@ -42,6 +43,8 @@ export interface ResourceLoader {
 	getPrompts(): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] };
 	getThemes(): { themes: Theme[]; diagnostics: ResourceDiagnostic[] };
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
+	/** Whether project context discovery is enabled. Omitted by custom loaders for backward compatibility. */
+	isContextFilesEnabled?(): boolean;
 	getSystemPrompt(): string | undefined;
 	getSystemPromptSource(): { path: string } | undefined;
 	getAppendSystemPrompt(): string[];
@@ -65,27 +68,6 @@ function resolvePromptInput(input: string | undefined, description: string): str
 	}
 
 	return input;
-}
-
-function loadContextFileFromDir(dir: string): { path: string; content: string } | null {
-	const candidates = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
-	for (const filename of candidates) {
-		const filePath = join(dir, filename);
-		if (existsSync(filePath)) {
-			try {
-				if (!statSync(filePath).isFile()) {
-					continue;
-				}
-				return {
-					path: filePath,
-					content: readFileSync(filePath, "utf-8"),
-				};
-			} catch (error) {
-				console.error(chalk.yellow(`Warning: Could not read ${filePath}: ${error}`));
-			}
-		}
-	}
-	return null;
 }
 
 /**
@@ -318,6 +300,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> } {
 		return { agentsFiles: this.agentsFiles };
+	}
+
+	isContextFilesEnabled(): boolean {
+		return !this.noContextFiles;
 	}
 
 	getSystemPrompt(): string | undefined {
