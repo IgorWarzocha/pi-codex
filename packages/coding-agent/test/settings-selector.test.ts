@@ -14,30 +14,112 @@ describe("SettingsSelectorComponent", () => {
 		setKeybindings(new KeybindingsManager());
 	});
 
+	function config(): SettingsConfig {
+		return {
+			autoCompact: true,
+			showImages: false,
+			imageWidthCells: 80,
+			autoResizeImages: true,
+			blockImages: false,
+			enableSkillCommands: true,
+			steeringMode: "one-at-a-time",
+			followUpMode: "one-at-a-time",
+			transport: "auto",
+			executionMode: "code",
+			piCodex: {},
+			httpIdleTimeoutMs: 300_000,
+			thinkingLevel: "low",
+			currentTheme: "dark",
+			terminalTheme: "dark",
+			hideThinkingBlock: false,
+			mermaidRenderingMode: "off",
+			showCacheMissNotices: false,
+			collapseChangelog: false,
+			enableInstallTelemetry: false,
+			doubleEscapeAction: "tree",
+			treeFilterMode: "default",
+			showHardwareCursor: false,
+			editorPaddingX: 0,
+			outputPad: 1,
+			autocompleteMaxVisible: 5,
+			quietStartup: false,
+			warnings: {},
+			availableThinkingLevels: ["low"],
+			availableThemes: ["dark"],
+			defaultProjectTrust: "ask",
+			clearOnShrink: false,
+			showTerminalProgress: false,
+			tuiMode: "regular",
+			fullscreenExitOutput: "transcript",
+			fullscreenScrollbar: "auto",
+		};
+	}
+
+	it("groups settings into guided tabs", () => {
+		const selector = new SettingsSelectorComponent(config(), {} as SettingsCallbacks);
+		const general = selector.render(120).join("\n");
+
+		expect(general).toContain("General");
+		expect(general).toContain("Codex");
+		expect(general).toContain("Agent behavior, tool execution, reasoning, and session navigation.");
+		expect(general).toContain("Execution mode");
+		expect(general).not.toContain("Codex Fast Mode");
+
+		selector.handleInput("\t");
+		const codex = selector.render(120).join("\n");
+		expect(selector.getActiveTabId()).toBe("codex");
+		expect(codex).toContain("OpenAI request behavior, context compaction, and prompt-cache continuity.");
+		expect(codex).toContain("Codex Fast Mode");
+		expect(codex).not.toContain("Execution mode");
+	});
+
+	it("keeps tab navigation inside an open setting submenu", () => {
+		const selector = new SettingsSelectorComponent(config(), {} as SettingsCallbacks);
+		selector.handleInput("\x1b[B");
+		selector.handleInput("\r");
+
+		selector.handleInput("\t");
+		expect(selector.getActiveTabId()).toBe("general");
+
+		selector.handleInput("\x1b");
+		selector.handleInput("\t");
+		expect(selector.getActiveTabId()).toBe("codex");
+	});
+
 	it("cycles through fullscreen settings", () => {
 		const onExitOutputChange = vi.fn();
 		const onScrollbarChange = vi.fn();
-		const config = {
-			fullscreenExitOutput: "transcript",
-			fullscreenScrollbar: "auto",
-			warnings: {},
-			availableThinkingLevels: [],
-			availableThemes: [],
-		} as unknown as SettingsConfig;
 		const callbacks = {
 			onFullscreenExitOutputChange: onExitOutputChange,
 			onFullscreenScrollbarChange: onScrollbarChange,
 		} as unknown as SettingsCallbacks;
 
-		const cycle = (label: string, count: number) => {
-			const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
-			for (const character of label) list.handleInput(character);
-			for (let i = 0; i < count; i++) list.handleInput("\r");
+		const cycle = (down: number, count: number) => {
+			const selector = new SettingsSelectorComponent(config(), callbacks);
+			for (let i = 0; i < 4; i++) selector.handleInput("\t");
+			for (let i = 0; i < down; i++) selector.handleInput("\x1b[B");
+			for (let i = 0; i < count; i++) selector.handleInput("\r");
 		};
 
-		cycle("Fullscreen exit output", 2);
+		cycle(1, 2);
 		expect(onExitOutputChange.mock.calls.flat()).toEqual(["resume-hint", "transcript"]);
-		cycle("Fullscreen scrollbar", 3);
+		cycle(2, 3);
 		expect(onScrollbarChange.mock.calls.flat()).toEqual(["always", "hidden", "auto"]);
+	});
+
+	it("configures the native voice context model", () => {
+		const onPiCodexChange = vi.fn();
+		const selector = new SettingsSelectorComponent(config(), {
+			onPiCodexChange,
+		} as unknown as SettingsCallbacks);
+
+		selector.handleInput("\t");
+		selector.handleInput("\t");
+		for (let i = 0; i < 5; i++) selector.handleInput("\x1b[B");
+		selector.handleInput("\r");
+
+		expect(onPiCodexChange).toHaveBeenLastCalledWith({
+			voice: { contextModel: { provider: "openai-codex", modelId: "gpt-5.6-luna" } },
+		});
 	});
 });

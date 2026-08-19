@@ -170,8 +170,15 @@ export function createErrorMessage(message: AssistantMessage, error: unknown, ab
 			delete (block as { partialJson?: string | undefined }).partialJson;
 		}
 	}
+	const errorRecord = isRecord(error) ? error : undefined;
+	const errorCode = asString(errorRecord?.code);
+	const errorStatus = asNumber(errorRecord?.status);
 	message.stopReason = aborted ? "aborted" : "error";
 	message.errorMessage = buildProviderErrorMessage(error);
+	if (errorCode) message.errorCode = errorCode;
+	else delete message.errorCode;
+	if (errorStatus !== undefined && Number.isInteger(errorStatus)) message.errorStatus = errorStatus;
+	else delete message.errorStatus;
 	return message;
 }
 

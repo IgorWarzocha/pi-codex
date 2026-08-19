@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Preserved structured Codex provider error codes and statuses so context-window recovery does not depend on error wording.
 - Bound canonical Codex compaction replay to the final instructions and ordered tools so prompt or tool changes cannot reuse stale provider state.
 - Preserved live Codex WebSocket continuation while an isolated cache keepalive replays the exact prepared provider request.
 

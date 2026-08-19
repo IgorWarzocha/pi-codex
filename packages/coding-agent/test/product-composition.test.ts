@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
@@ -16,6 +18,12 @@ describe("Pi-Codex product composition", () => {
 
 	it("bundles only the native Pi-Codex extension", () => {
 		expect(productExtensions.map((extension) => extension.name)).toEqual(["Pi-Codex"]);
+	});
+
+	it("does not reintroduce the stock multi-provider model scope selector", () => {
+		expect(
+			existsSync(join(import.meta.dirname, "../src/modes/interactive/components/scoped-models-selector.ts")),
+		).toBe(false);
 	});
 
 	it("rejects configured providers without an explicit stream", async () => {

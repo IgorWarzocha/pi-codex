@@ -64,6 +64,7 @@ export interface ModelChangeEntry extends SessionEntryBase {
 	type: "model_change";
 	provider: string;
 	modelId: string;
+	contextWindow?: number;
 }
 
 export interface CompactionEntry<T = unknown> extends SessionEntryBase {
@@ -168,7 +169,7 @@ export interface SessionTreeNode {
 export interface SessionContext {
 	messages: AgentMessage[];
 	thinkingLevel: string;
-	model: { provider: string; modelId: string } | null;
+	model: { provider: string; modelId: string; contextWindow?: number } | null;
 }
 
 export interface SessionInfo {
@@ -359,17 +360,30 @@ function buildSessionPath(
 	return path;
 }
 
+function matchingContextWindow(model: SessionContext["model"], provider: string, modelId: string): number | undefined {
+	return model?.provider === provider && model.modelId === modelId ? model.contextWindow : undefined;
+}
+
 function getSessionContextSettings(path: SessionEntry[]): Pick<SessionContext, "thinkingLevel" | "model"> {
 	let thinkingLevel = "off";
-	let model: { provider: string; modelId: string } | null = null;
+	let model: SessionContext["model"] = null;
 
 	for (const entry of path) {
 		if (entry.type === "thinking_level_change") {
 			thinkingLevel = entry.thinkingLevel;
 		} else if (entry.type === "model_change") {
-			model = { provider: entry.provider, modelId: entry.modelId };
+			model = {
+				provider: entry.provider,
+				modelId: entry.modelId,
+				...(entry.contextWindow !== undefined ? { contextWindow: entry.contextWindow } : {}),
+			};
 		} else if (entry.type === "message" && entry.message.role === "assistant") {
-			model = { provider: entry.message.provider, modelId: entry.message.model };
+			const contextWindow = matchingContextWindow(model, entry.message.provider, entry.message.model);
+			model = {
+				provider: entry.message.provider,
+				modelId: entry.message.model,
+				...(contextWindow !== undefined ? { contextWindow } : {}),
+			};
 		}
 	}
 
@@ -1083,7 +1097,7 @@ export class SessionManager {
 	}
 
 	/** Append a model change as child of current leaf, then advance leaf. Returns entry id. */
-	appendModelChange(provider: string, modelId: string): string {
+	appendModelChange(provider: string, modelId: string, contextWindow?: number): string {
 		const entry: ModelChangeEntry = {
 			type: "model_change",
 			id: generateId(this.byId),
@@ -1091,6 +1105,7 @@ export class SessionManager {
 			timestamp: new Date().toISOString(),
 			provider,
 			modelId,
+			...(contextWindow !== undefined ? { contextWindow } : {}),
 		};
 		this._appendEntry(entry);
 		return entry.id;

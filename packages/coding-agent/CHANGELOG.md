@@ -11,6 +11,7 @@
 
 ### Added
 
+- Added a three-column Pi-Codex model profile picker for Luna, Terra, and Sol with 272k, 472k, and 872k context choices, reasoning selection, and saved cycling profiles.
 - Added transcript usage notices for compaction and branch summaries when cache miss notices are enabled.
 - Added the pinned Codex V8 host, nested-tool delegation and traces, extension preflight guards, and trusted global/project TOML custom tools.
 - Added Notebook Mode with a persistent Deno/TypeScript kernel, durable project and session checkpoints, named profiles, lifecycle controls, journals, diagnostics, and native tool delegation.
@@ -20,6 +21,7 @@
 
 ### Changed
 
+- Reworked `/settings` into guided General, Codex, Voice, Display, Terminal, and Advanced tabs, including native Codex status and voice-context controls.
 - Tree-navigation summaries now run as hidden developer turns over the exact active provider context and settings, then return as visible, non-triggering developer context after the jump. This preserves the pre-jump cache lane and retains structured tool output instead of issuing cold, aggressively serialized summary requests.
 - Pi-Codex now builds its compact system prompt directly from runtime guidance, project instructions, skills, shell context, and the working directory instead of constructing and rewriting Pi's stock prompt before each turn.
 - Pi-Codex background-shell settings now propagate through an explicit runtime notification instead of polling from `before_agent_start`.
@@ -34,6 +36,7 @@
 
 ### Fixed
 
+- Made context-window recovery use structured provider errors and retain failed assistant state when compaction cannot complete.
 - Fixed idle Codex cache keepalives to replay the exact final provider request without treating `generate:false` usage as cache telemetry, and raised native compaction's subscription endpoint budget to 872k tokens.
 - Fixed idle custom messages with `triggerTurn: true` bypassing `before_agent_start` and native Codex turn preparation.
 - Fixed transient Notebook startup failures when another local process claims a reserved Jupyter port before the kernel binds it.

@@ -25,6 +25,21 @@ describe("SettingsManager", () => {
 		}
 	});
 
+	it("stores the default and saved Pi-Codex model profiles", async () => {
+		const manager = SettingsManager.create(projectDir, agentDir);
+		const profiles = [{ modelId: "gpt-5.6-terra", contextWindow: 472_000, thinkingLevel: "medium" }] as const;
+
+		manager.setDefaultModelProfile("openai-codex", "gpt-5.6-terra", 472_000, "medium");
+		manager.setSavedModelProfiles(profiles);
+		await manager.flush();
+
+		expect(manager.getDefaultProvider()).toBe("openai-codex");
+		expect(manager.getDefaultModel()).toBe("gpt-5.6-terra");
+		expect(manager.getDefaultContextWindow()).toBe(472_000);
+		expect(manager.getDefaultThinkingLevel()).toBe("medium");
+		expect(manager.getSavedModelProfiles()).toEqual(profiles);
+	});
+
 	describe("preserves externally added settings", () => {
 		it("should preserve enabledModels when changing thinking level", async () => {
 			// Create initial settings file

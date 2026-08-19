@@ -77,6 +77,8 @@ const NON_OVERFLOW_PATTERNS = [
 	/too many requests/i, // Generic HTTP 429 style
 ];
 
+const CONTEXT_OVERFLOW_ERROR_CODES = new Set(["context_length_exceeded", "model_context_window_exceeded"]);
+
 /**
  * Check if an assistant message represents a context overflow error.
  *
@@ -132,7 +134,10 @@ const NON_OVERFLOW_PATTERNS = [
  * @returns true if the message indicates a context overflow
  */
 export function isContextOverflow(message: AssistantMessage, contextWindow?: number): boolean {
-	// Case 1: Check error message patterns
+	// Case 1: Prefer stable provider codes, then fall back to message patterns.
+	if (message.stopReason === "error" && message.errorCode && CONTEXT_OVERFLOW_ERROR_CODES.has(message.errorCode)) {
+		return true;
+	}
 	if (message.stopReason === "error" && message.errorMessage) {
 		// Skip messages matching known non-overflow patterns (e.g. throttling / rate-limit)
 		const isNonOverflow = NON_OVERFLOW_PATTERNS.some((p) => p.test(message.errorMessage!));

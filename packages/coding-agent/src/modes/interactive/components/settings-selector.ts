@@ -4,6 +4,7 @@ import {
 	type Component,
 	Container,
 	getCapabilities,
+	getKeybindings,
 	type ScrollViewScrollbar,
 	type SelectItem,
 	SelectList,
@@ -12,6 +13,7 @@ import {
 	SettingsList,
 	Spacer,
 	Text,
+	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { formatHttpIdleTimeoutMs, HTTP_IDLE_TIMEOUT_CHOICES } from "../../../core/http-dispatcher.ts";
 import type {
@@ -22,6 +24,7 @@ import type {
 	TuiMode,
 	WarningSettings,
 } from "../../../core/settings-manager.ts";
+import { CODEX_PROFILE_MODEL_IDS } from "../../../product/model-profiles.ts";
 import {
 	getSelectListTheme,
 	getSettingsListTheme,
@@ -31,6 +34,7 @@ import {
 } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { keyDisplayText } from "./keybinding-hints.ts";
+import { SETTINGS_TABS, settingsByTab } from "./settings-tabs.ts";
 
 const SETTINGS_SUBMENU_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 	minPrimaryColumnWidth: 12,
@@ -56,6 +60,16 @@ const DEFAULT_PROJECT_TRUST_LABELS: Record<DefaultProjectTrust, string> = {
 const DEFAULT_PROJECT_TRUST_BY_LABEL = new Map(
 	Object.entries(DEFAULT_PROJECT_TRUST_LABELS).map(([value, label]) => [label, value as DefaultProjectTrust]),
 );
+
+const TOGGLE_VALUES = ["off", "on"];
+
+function toggleValue(enabled: boolean): string {
+	return enabled ? "on" : "off";
+}
+
+function isEnabled(value: string): boolean {
+	return value === "on";
+}
 
 export interface SettingsConfig {
 	autoCompact: boolean;
@@ -151,8 +165,8 @@ class WarningSettingsSubmenu extends Container {
 				id: "anthropic-extra-usage",
 				label: "Anthropic extra usage",
 				description: "Warn when Anthropic subscription auth may use paid extra usage",
-				currentValue: (this.state.anthropicExtraUsage ?? true) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(this.state.anthropicExtraUsage ?? true),
+				values: TOGGLE_VALUES,
 			},
 		];
 
@@ -163,7 +177,7 @@ class WarningSettingsSubmenu extends Container {
 			(id, newValue) => {
 				switch (id) {
 					case "anthropic-extra-usage":
-						this.state = { ...this.state, anthropicExtraUsage: newValue === "true" };
+						this.state = { ...this.state, anthropicExtraUsage: isEnabled(newValue) };
 						onChange({ ...this.state });
 						break;
 				}
@@ -491,6 +505,11 @@ class ThemeSubmenu extends Container {
  */
 export class SettingsSelectorComponent extends Container {
 	private settingsList: SettingsList;
+	private readonly itemsByTab: Map<(typeof SETTINGS_TABS)[number]["id"], SettingItem[]>;
+	private readonly onSettingChange: (id: string, newValue: string) => void;
+	private readonly onCancel: () => void;
+	private readonly border = new DynamicBorder();
+	private activeTabIndex = 0;
 
 	constructor(config: SettingsConfig, callbacks: SettingsCallbacks) {
 		super();
@@ -499,14 +518,18 @@ export class SettingsSelectorComponent extends Container {
 		const followUpKey = keyDisplayText("app.message.followUp");
 		let currentWarnings = { ...config.warnings };
 		let currentPiCodex = structuredClone(config.piCodex ?? {});
+		const realtimeShortcut = currentPiCodex.voice?.realtimeShortcut ?? "ctrl+alt+space";
+		const dictationShortcut = currentPiCodex.voice?.dictationShortcut ?? "ctrl+alt+d";
+		const muteShortcut = currentPiCodex.voice?.muteShortcut ?? "ctrl+alt+m";
+		const serverShortcut = currentPiCodex.voice?.serverShortcut ?? "ctrl+alt+g";
 
 		const items: SettingItem[] = [
 			{
 				id: "autocompact",
 				label: "Auto-compact",
 				description: "Automatically compact context when it gets too large",
-				currentValue: config.autoCompact ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(config.autoCompact),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "steering-mode",
@@ -535,8 +558,8 @@ export class SettingsSelectorComponent extends Container {
 				id: "codex-fast",
 				label: "Codex Fast Mode",
 				description: "Use OpenAI priority service tier",
-				currentValue: (currentPiCodex.openai?.fast ?? false) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.openai?.fast ?? false),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-verbosity",
@@ -549,8 +572,8 @@ export class SettingsSelectorComponent extends Container {
 				id: "codex-compaction",
 				label: "Codex Compaction V2",
 				description: "Use encrypted native Responses compaction and replay",
-				currentValue: (currentPiCodex.compaction?.responsesCompaction ?? true) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.compaction?.responsesCompaction ?? true),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-cache-diagnostics",
@@ -563,15 +586,15 @@ export class SettingsSelectorComponent extends Container {
 				id: "codex-cache-keepalive",
 				label: "Codex cache keepalive",
 				description: "Refresh an idle cached WebSocket context every 25 minutes",
-				currentValue: (currentPiCodex.openai?.cacheKeepalive ?? false) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.openai?.cacheKeepalive ?? false),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-cached-websockets",
 				label: "Codex cached WebSockets",
 				description: "Keep session transport and continuation state warm",
-				currentValue: (currentPiCodex.openai?.forceCachedWebSockets ?? true) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.openai?.forceCachedWebSockets ?? true),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-compaction-retention",
@@ -585,26 +608,33 @@ export class SettingsSelectorComponent extends Container {
 				label: "Codex helper model",
 				description: "Model used by web search and text image descriptions",
 				currentValue: currentPiCodex.openai?.webSearchModel ?? "gpt-5.6-luna",
-				values: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4-mini", "gpt-5.3-codex-spark"],
+				values: [...CODEX_PROFILE_MODEL_IDS],
 			},
 			{
 				id: "codex-image-description",
 				label: "Describe images for text models",
 				description: "Use the Codex helper model to return plain-text image descriptions",
-				currentValue: (currentPiCodex.viewImageFallback ?? false) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.viewImageFallback ?? false),
+				values: TOGGLE_VALUES,
+			},
+			{
+				id: "codex-status-line",
+				label: "Codex status line",
+				description: "Show execution mode, native tools, cache state, and subscription usage above the editor",
+				currentValue: toggleValue(currentPiCodex.ui?.statusLine ?? true),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-background-shell",
 				label: "Background shell widget",
 				description: "Show resumable background command status above the editor",
-				currentValue: (currentPiCodex.ui?.backgroundShellWidget ?? true) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.ui?.backgroundShellWidget ?? true),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-voice",
 				label: "Realtime voice",
-				description: "Voice used by the fixed realtime Codex transport",
+				description: `Choose the realtime voice. ${realtimeShortcut} starts or stops it, ${muteShortcut} mutes it, and ${serverShortcut} toggles LAN control. Use /voice setup to diagnose audio.`,
 				currentValue: currentPiCodex.voice?.v3Voice ?? "cove",
 				values: ["cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "arbor", "sol"],
 			},
@@ -612,13 +642,13 @@ export class SettingsSelectorComponent extends Container {
 				id: "codex-voice-resume",
 				label: "Resume dropped voice calls",
 				description: "Reconnect only calls that were previously established",
-				currentValue: (currentPiCodex.voice?.autoResumeRealtime ?? false) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.voice?.autoResumeRealtime ?? false),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-dictation-mode",
 				label: "Dictation shortcut",
-				description: "Push records while held; toggle starts and stops on each press",
+				description: `${dictationShortcut}: Push records while held; toggle starts and stops on each press`,
 				currentValue: currentPiCodex.voice?.dictationShortcutMode ?? "push",
 				values: ["push", "toggle"],
 			},
@@ -626,15 +656,23 @@ export class SettingsSelectorComponent extends Container {
 				id: "codex-voice-acknowledgements",
 				label: "Voice delegation acknowledgements",
 				description: "Let realtime voice acknowledge delegated work while Pi runs",
-				currentValue: (currentPiCodex.voice?.delegationAcknowledgements ?? true) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.voice?.delegationAcknowledgements ?? true),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "codex-voice-reasoning",
 				label: "Speak reasoning summaries",
 				description: "Use a completed reasoning summary when tool work produced no speakable text",
-				currentValue: (currentPiCodex.voice?.forwardReasoningSummaries ?? true) ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(currentPiCodex.voice?.forwardReasoningSummaries ?? true),
+				values: TOGGLE_VALUES,
+			},
+			{
+				id: "codex-voice-context-model",
+				label: "Voice context model",
+				description:
+					"Optional isolated model that maintains a compact continuity summary for realtime voice without adding voice chatter to the coding turn",
+				currentValue: currentPiCodex.voice?.contextModel?.modelId ?? "off",
+				values: ["off", ...CODEX_PROFILE_MODEL_IDS],
 			},
 			{
 				id: "codex-voice-context-reasoning",
@@ -662,8 +700,8 @@ export class SettingsSelectorComponent extends Container {
 				id: "hide-thinking",
 				label: "Hide thinking",
 				description: "Hide thinking blocks in assistant responses",
-				currentValue: config.hideThinkingBlock ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(config.hideThinkingBlock),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "mermaid-rendering",
@@ -676,29 +714,29 @@ export class SettingsSelectorComponent extends Container {
 				id: "cache-miss-notices",
 				label: "Cache miss notices",
 				description: "Show transcript notices for significant prompt-cache misses and compaction costs",
-				currentValue: config.showCacheMissNotices ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(config.showCacheMissNotices),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "collapse-changelog",
 				label: "Collapse changelog",
 				description: "Show condensed changelog after updates",
-				currentValue: config.collapseChangelog ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(config.collapseChangelog),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "quiet-startup",
 				label: "Quiet startup",
 				description: "Disable verbose printing at startup",
-				currentValue: config.quietStartup ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(config.quietStartup),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "install-telemetry",
 				label: "Install telemetry",
 				description: "Send an anonymous version/update ping after changelog-detected updates",
-				currentValue: config.enableInstallTelemetry ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(config.enableInstallTelemetry),
+				values: TOGGLE_VALUES,
 			},
 			{
 				id: "default-project-trust",
@@ -796,8 +834,8 @@ export class SettingsSelectorComponent extends Container {
 				id: "show-images",
 				label: "Show images",
 				description: "Render images inline in terminal",
-				currentValue: config.showImages ? "true" : "false",
-				values: ["true", "false"],
+				currentValue: toggleValue(config.showImages),
+				values: TOGGLE_VALUES,
 			});
 			items.splice(2, 0, {
 				id: "image-width-cells",
@@ -813,8 +851,8 @@ export class SettingsSelectorComponent extends Container {
 			id: "auto-resize-images",
 			label: "Auto-resize images",
 			description: "Resize large images to 2000x2000 max for better model compatibility",
-			currentValue: config.autoResizeImages ? "true" : "false",
-			values: ["true", "false"],
+			currentValue: toggleValue(config.autoResizeImages),
+			values: TOGGLE_VALUES,
 		});
 
 		// Block images toggle (always available, insert after auto-resize-images)
@@ -823,8 +861,8 @@ export class SettingsSelectorComponent extends Container {
 			id: "block-images",
 			label: "Block images",
 			description: "Prevent images from being sent to LLM providers",
-			currentValue: config.blockImages ? "true" : "false",
-			values: ["true", "false"],
+			currentValue: toggleValue(config.blockImages),
+			values: TOGGLE_VALUES,
 		});
 
 		// Skill commands toggle (insert after block-images)
@@ -833,8 +871,8 @@ export class SettingsSelectorComponent extends Container {
 			id: "skill-commands",
 			label: "Skill commands",
 			description: "Register skills as /skill:name commands",
-			currentValue: config.enableSkillCommands ? "true" : "false",
-			values: ["true", "false"],
+			currentValue: toggleValue(config.enableSkillCommands),
+			values: TOGGLE_VALUES,
 		});
 
 		// Hardware cursor toggle (insert after skill-commands)
@@ -843,8 +881,8 @@ export class SettingsSelectorComponent extends Container {
 			id: "show-hardware-cursor",
 			label: "Show hardware cursor",
 			description: "Show the terminal cursor while still positioning it for IME support",
-			currentValue: config.showHardwareCursor ? "true" : "false",
-			values: ["true", "false"],
+			currentValue: toggleValue(config.showHardwareCursor),
+			values: TOGGLE_VALUES,
 		});
 
 		// Editor padding toggle (insert after show-hardware-cursor)
@@ -883,8 +921,8 @@ export class SettingsSelectorComponent extends Container {
 			id: "clear-on-shrink",
 			label: "Clear on shrink",
 			description: "Clear empty rows when content shrinks (may cause flicker)",
-			currentValue: config.clearOnShrink ? "true" : "false",
-			values: ["true", "false"],
+			currentValue: toggleValue(config.clearOnShrink),
+			values: TOGGLE_VALUES,
 		});
 
 		// Terminal progress toggle (insert after clear-on-shrink)
@@ -893,242 +931,312 @@ export class SettingsSelectorComponent extends Container {
 			id: "terminal-progress",
 			label: "Terminal progress",
 			description: "Show OSC 9;4 progress indicators in the terminal tab bar",
-			currentValue: config.showTerminalProgress ? "true" : "false",
-			values: ["true", "false"],
+			currentValue: toggleValue(config.showTerminalProgress),
+			values: TOGGLE_VALUES,
 		});
 
-		// Add borders
-		this.addChild(new DynamicBorder());
-
-		this.settingsList = new SettingsList(
-			items,
-			10,
-			getSettingsListTheme(),
-			(id, newValue) => {
-				switch (id) {
-					case "autocompact":
-						callbacks.onAutoCompactChange(newValue === "true");
-						break;
-					case "show-images":
-						callbacks.onShowImagesChange(newValue === "true");
-						break;
-					case "image-width-cells":
-						callbacks.onImageWidthCellsChange(parseInt(newValue, 10));
-						break;
-					case "auto-resize-images":
-						callbacks.onAutoResizeImagesChange(newValue === "true");
-						break;
-					case "block-images":
-						callbacks.onBlockImagesChange(newValue === "true");
-						break;
-					case "skill-commands":
-						callbacks.onEnableSkillCommandsChange(newValue === "true");
-						break;
-					case "steering-mode":
-						callbacks.onSteeringModeChange(newValue as "all" | "one-at-a-time");
-						break;
-					case "follow-up-mode":
-						callbacks.onFollowUpModeChange(newValue as "all" | "one-at-a-time");
-						break;
-					case "transport":
-						callbacks.onTransportChange(newValue as Transport);
-						break;
-					case "execution-mode":
-						callbacks.onExecutionModeChange(newValue as "normal" | "code" | "notebook");
-						break;
-					case "codex-fast":
-						currentPiCodex = {
-							...currentPiCodex,
-							openai: { ...currentPiCodex.openai, fast: newValue === "true" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-verbosity":
-						currentPiCodex = {
-							...currentPiCodex,
-							openai: { ...currentPiCodex.openai, verbosity: newValue as "low" | "medium" | "high" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-compaction":
-						currentPiCodex = {
-							...currentPiCodex,
-							compaction: { ...currentPiCodex.compaction, responsesCompaction: newValue === "true" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-cache-diagnostics":
-						currentPiCodex = {
-							...currentPiCodex,
-							openai: {
-								...currentPiCodex.openai,
-								cacheDiagnostics: newValue as "off" | "status" | "status-and-log",
-							},
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-cache-keepalive":
-						currentPiCodex = {
-							...currentPiCodex,
-							openai: { ...currentPiCodex.openai, cacheKeepalive: newValue === "true" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-cached-websockets":
-						currentPiCodex = {
-							...currentPiCodex,
-							openai: { ...currentPiCodex.openai, forceCachedWebSockets: newValue === "true" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-compaction-retention":
-						currentPiCodex = {
-							...currentPiCodex,
-							compaction: {
-								...currentPiCodex.compaction,
-								v2UserMessageRetention: Number(newValue) as 16 | 32 | 64,
-							},
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-helper-model":
-						currentPiCodex = {
-							...currentPiCodex,
-							openai: { ...currentPiCodex.openai, webSearchModel: newValue },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-image-description":
-						currentPiCodex = { ...currentPiCodex, viewImageFallback: newValue === "true" };
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-background-shell":
-						currentPiCodex = {
-							...currentPiCodex,
-							ui: { ...currentPiCodex.ui, backgroundShellWidget: newValue === "true" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-voice":
-						currentPiCodex = { ...currentPiCodex, voice: { ...currentPiCodex.voice, v3Voice: newValue } };
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-voice-resume":
-						currentPiCodex = {
-							...currentPiCodex,
-							voice: { ...currentPiCodex.voice, autoResumeRealtime: newValue === "true" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-dictation-mode":
-						currentPiCodex = {
-							...currentPiCodex,
-							voice: { ...currentPiCodex.voice, dictationShortcutMode: newValue as "push" | "toggle" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-voice-acknowledgements":
-						currentPiCodex = {
-							...currentPiCodex,
-							voice: { ...currentPiCodex.voice, delegationAcknowledgements: newValue === "true" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-voice-reasoning":
-						currentPiCodex = {
-							...currentPiCodex,
-							voice: { ...currentPiCodex.voice, forwardReasoningSummaries: newValue === "true" },
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "codex-voice-context-reasoning":
-						currentPiCodex = {
-							...currentPiCodex,
-							voice: {
-								...currentPiCodex.voice,
-								contextReasoning: newValue as "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
-							},
-						};
-						callbacks.onPiCodexChange(currentPiCodex);
-						break;
-					case "http-idle-timeout": {
-						const choice = HTTP_IDLE_TIMEOUT_CHOICES.find((item) => item.label === newValue);
-						if (choice) {
-							callbacks.onHttpIdleTimeoutMsChange(choice.timeoutMs);
-						}
-						break;
-					}
-					case "hide-thinking":
-						callbacks.onHideThinkingBlockChange(newValue === "true");
-						break;
-					case "mermaid-rendering":
-						callbacks.onMermaidRenderingModeChange(newValue as MermaidRenderingMode);
-						break;
-					case "cache-miss-notices":
-						callbacks.onShowCacheMissNoticesChange(newValue === "true");
-						break;
-					case "collapse-changelog":
-						callbacks.onCollapseChangelogChange(newValue === "true");
-						break;
-					case "quiet-startup":
-						callbacks.onQuietStartupChange(newValue === "true");
-						break;
-					case "install-telemetry":
-						callbacks.onEnableInstallTelemetryChange(newValue === "true");
-						break;
-					case "default-project-trust": {
-						const defaultProjectTrust = DEFAULT_PROJECT_TRUST_BY_LABEL.get(newValue);
-						if (defaultProjectTrust) {
-							callbacks.onDefaultProjectTrustChange(defaultProjectTrust);
-						}
-						break;
-					}
-					case "double-escape-action":
-						callbacks.onDoubleEscapeActionChange(newValue as "fork" | "tree");
-						break;
-					case "tree-filter-mode":
-						callbacks.onTreeFilterModeChange(
-							newValue as "default" | "no-tools" | "user-only" | "labeled-only" | "all",
-						);
-						break;
-					case "show-hardware-cursor":
-						callbacks.onShowHardwareCursorChange(newValue === "true");
-						break;
-					case "editor-padding":
-						callbacks.onEditorPaddingXChange(parseInt(newValue, 10));
-						break;
-					case "output-padding":
-						callbacks.onOutputPadChange(newValue === "0" ? 0 : 1);
-						break;
-					case "autocomplete-max-visible":
-						callbacks.onAutocompleteMaxVisibleChange(parseInt(newValue, 10));
-						break;
-					case "clear-on-shrink":
-						callbacks.onClearOnShrinkChange(newValue === "true");
-						break;
-					case "terminal-progress":
-						callbacks.onShowTerminalProgressChange(newValue === "true");
-						break;
-					case "tui-mode":
-						callbacks.onTuiModeChange(newValue as TuiMode);
-						break;
-					case "fullscreen-exit-output":
-						callbacks.onFullscreenExitOutputChange(newValue as FullscreenExitOutput);
-						break;
-					case "fullscreen-scrollbar":
-						callbacks.onFullscreenScrollbarChange(newValue as ScrollViewScrollbar);
-						break;
-					case "theme":
-						callbacks.onThemeChange(newValue);
-						break;
+		this.itemsByTab = settingsByTab(items);
+		this.onCancel = callbacks.onCancel;
+		this.onSettingChange = (id, newValue) => {
+			switch (id) {
+				case "autocompact":
+					callbacks.onAutoCompactChange(isEnabled(newValue));
+					break;
+				case "show-images":
+					callbacks.onShowImagesChange(isEnabled(newValue));
+					break;
+				case "image-width-cells":
+					callbacks.onImageWidthCellsChange(parseInt(newValue, 10));
+					break;
+				case "auto-resize-images":
+					callbacks.onAutoResizeImagesChange(isEnabled(newValue));
+					break;
+				case "block-images":
+					callbacks.onBlockImagesChange(isEnabled(newValue));
+					break;
+				case "skill-commands":
+					callbacks.onEnableSkillCommandsChange(isEnabled(newValue));
+					break;
+				case "steering-mode":
+					callbacks.onSteeringModeChange(newValue as "all" | "one-at-a-time");
+					break;
+				case "follow-up-mode":
+					callbacks.onFollowUpModeChange(newValue as "all" | "one-at-a-time");
+					break;
+				case "transport":
+					callbacks.onTransportChange(newValue as Transport);
+					break;
+				case "execution-mode":
+					callbacks.onExecutionModeChange(newValue as "normal" | "code" | "notebook");
+					break;
+				case "codex-fast":
+					currentPiCodex = {
+						...currentPiCodex,
+						openai: { ...currentPiCodex.openai, fast: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-verbosity":
+					currentPiCodex = {
+						...currentPiCodex,
+						openai: { ...currentPiCodex.openai, verbosity: newValue as "low" | "medium" | "high" },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-compaction":
+					currentPiCodex = {
+						...currentPiCodex,
+						compaction: { ...currentPiCodex.compaction, responsesCompaction: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-cache-diagnostics":
+					currentPiCodex = {
+						...currentPiCodex,
+						openai: {
+							...currentPiCodex.openai,
+							cacheDiagnostics: newValue as "off" | "status" | "status-and-log",
+						},
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-cache-keepalive":
+					currentPiCodex = {
+						...currentPiCodex,
+						openai: { ...currentPiCodex.openai, cacheKeepalive: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-cached-websockets":
+					currentPiCodex = {
+						...currentPiCodex,
+						openai: { ...currentPiCodex.openai, forceCachedWebSockets: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-compaction-retention":
+					currentPiCodex = {
+						...currentPiCodex,
+						compaction: {
+							...currentPiCodex.compaction,
+							v2UserMessageRetention: Number(newValue) as 16 | 32 | 64,
+						},
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-helper-model":
+					currentPiCodex = {
+						...currentPiCodex,
+						openai: { ...currentPiCodex.openai, webSearchModel: newValue },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-image-description":
+					currentPiCodex = { ...currentPiCodex, viewImageFallback: isEnabled(newValue) };
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-status-line":
+					currentPiCodex = {
+						...currentPiCodex,
+						ui: { ...currentPiCodex.ui, statusLine: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-background-shell":
+					currentPiCodex = {
+						...currentPiCodex,
+						ui: { ...currentPiCodex.ui, backgroundShellWidget: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-voice":
+					currentPiCodex = { ...currentPiCodex, voice: { ...currentPiCodex.voice, v3Voice: newValue } };
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-voice-resume":
+					currentPiCodex = {
+						...currentPiCodex,
+						voice: { ...currentPiCodex.voice, autoResumeRealtime: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-dictation-mode":
+					currentPiCodex = {
+						...currentPiCodex,
+						voice: { ...currentPiCodex.voice, dictationShortcutMode: newValue as "push" | "toggle" },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-voice-acknowledgements":
+					currentPiCodex = {
+						...currentPiCodex,
+						voice: { ...currentPiCodex.voice, delegationAcknowledgements: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-voice-reasoning":
+					currentPiCodex = {
+						...currentPiCodex,
+						voice: { ...currentPiCodex.voice, forwardReasoningSummaries: isEnabled(newValue) },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "codex-voice-context-model": {
+					const { contextModel: _contextModel, ...voice } = currentPiCodex.voice ?? {};
+					currentPiCodex = {
+						...currentPiCodex,
+						voice:
+							newValue === "off"
+								? voice
+								: { ...voice, contextModel: { provider: "openai-codex", modelId: newValue } },
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
 				}
-			},
-			callbacks.onCancel,
+				case "codex-voice-context-reasoning":
+					currentPiCodex = {
+						...currentPiCodex,
+						voice: {
+							...currentPiCodex.voice,
+							contextReasoning: newValue as "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+						},
+					};
+					callbacks.onPiCodexChange(currentPiCodex);
+					break;
+				case "http-idle-timeout": {
+					const choice = HTTP_IDLE_TIMEOUT_CHOICES.find((item) => item.label === newValue);
+					if (choice) {
+						callbacks.onHttpIdleTimeoutMsChange(choice.timeoutMs);
+					}
+					break;
+				}
+				case "hide-thinking":
+					callbacks.onHideThinkingBlockChange(isEnabled(newValue));
+					break;
+				case "mermaid-rendering":
+					callbacks.onMermaidRenderingModeChange(newValue as MermaidRenderingMode);
+					break;
+				case "cache-miss-notices":
+					callbacks.onShowCacheMissNoticesChange(isEnabled(newValue));
+					break;
+				case "collapse-changelog":
+					callbacks.onCollapseChangelogChange(isEnabled(newValue));
+					break;
+				case "quiet-startup":
+					callbacks.onQuietStartupChange(isEnabled(newValue));
+					break;
+				case "install-telemetry":
+					callbacks.onEnableInstallTelemetryChange(isEnabled(newValue));
+					break;
+				case "default-project-trust": {
+					const defaultProjectTrust = DEFAULT_PROJECT_TRUST_BY_LABEL.get(newValue);
+					if (defaultProjectTrust) {
+						callbacks.onDefaultProjectTrustChange(defaultProjectTrust);
+					}
+					break;
+				}
+				case "double-escape-action":
+					callbacks.onDoubleEscapeActionChange(newValue as "fork" | "tree" | "none");
+					break;
+				case "tree-filter-mode":
+					callbacks.onTreeFilterModeChange(
+						newValue as "default" | "no-tools" | "user-only" | "labeled-only" | "all",
+					);
+					break;
+				case "show-hardware-cursor":
+					callbacks.onShowHardwareCursorChange(isEnabled(newValue));
+					break;
+				case "editor-padding":
+					callbacks.onEditorPaddingXChange(parseInt(newValue, 10));
+					break;
+				case "output-padding":
+					callbacks.onOutputPadChange(newValue === "0" ? 0 : 1);
+					break;
+				case "autocomplete-max-visible":
+					callbacks.onAutocompleteMaxVisibleChange(parseInt(newValue, 10));
+					break;
+				case "clear-on-shrink":
+					callbacks.onClearOnShrinkChange(isEnabled(newValue));
+					break;
+				case "terminal-progress":
+					callbacks.onShowTerminalProgressChange(isEnabled(newValue));
+					break;
+				case "tui-mode":
+					callbacks.onTuiModeChange(newValue as TuiMode);
+					break;
+				case "fullscreen-exit-output":
+					callbacks.onFullscreenExitOutputChange(newValue as FullscreenExitOutput);
+					break;
+				case "fullscreen-scrollbar":
+					callbacks.onFullscreenScrollbarChange(newValue as ScrollViewScrollbar);
+					break;
+				case "theme":
+					callbacks.onThemeChange(newValue);
+					break;
+			}
+		};
+		this.settingsList = this.createSettingsList();
+	}
+
+	private activeTab(): (typeof SETTINGS_TABS)[number] {
+		const tab = SETTINGS_TABS[this.activeTabIndex];
+		if (!tab) throw new Error(`Invalid settings tab index: ${this.activeTabIndex}`);
+		return tab;
+	}
+
+	private createSettingsList(): SettingsList {
+		const tab = this.activeTab();
+		const items = this.itemsByTab.get(tab.id);
+		if (!items) throw new Error(`Settings tab has no item collection: ${tab.id}`);
+		return new SettingsList(
+			items,
+			Math.min(items.length, 9),
+			getSettingsListTheme(),
+			this.onSettingChange,
+			this.onCancel,
 			{ enableSearch: true },
 		);
+	}
 
-		this.addChild(this.settingsList);
-		this.addChild(new DynamicBorder());
+	private switchTab(delta: number): void {
+		this.activeTabIndex = (this.activeTabIndex + delta + SETTINGS_TABS.length) % SETTINGS_TABS.length;
+		this.settingsList = this.createSettingsList();
+	}
+
+	override render(width: number): string[] {
+		const activeTab = this.activeTab();
+		const separator = `  ${theme.fg("dim", "/")}  `;
+		const tabs = SETTINGS_TABS.map((tab) =>
+			tab.id === activeTab.id ? theme.bold(theme.fg("accent", tab.label)) : theme.fg("dim", tab.label),
+		).join(separator);
+		return [
+			...this.border.render(width),
+			`  ${tabs}`,
+			theme.fg("muted", `  ${activeTab.description}`),
+			"",
+			...this.settingsList.render(width),
+			theme.fg("dim", "  Tab/Shift+Tab or ←/→ switch sections"),
+			...this.border.render(width),
+		].map((line) => truncateToWidth(line, width, ""));
+	}
+
+	override invalidate(): void {
+		this.settingsList.invalidate();
+	}
+
+	handleInput(data: string): void {
+		const kb = getKeybindings();
+		if (!this.settingsList.hasOpenSubmenu() && kb.matches(data, "app.settings.nextTab")) {
+			this.switchTab(1);
+		} else if (!this.settingsList.hasOpenSubmenu() && kb.matches(data, "app.settings.previousTab")) {
+			this.switchTab(-1);
+		} else {
+			this.settingsList.handleInput(data);
+		}
+	}
+
+	getActiveTabId(): (typeof SETTINGS_TABS)[number]["id"] {
+		return this.activeTab().id;
 	}
 
 	getSettingsList(): SettingsList {

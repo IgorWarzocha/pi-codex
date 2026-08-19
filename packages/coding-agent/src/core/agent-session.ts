@@ -99,7 +99,9 @@ import {
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
+import { type ModelProfile, withProfileContextWindow } from "./model-profile.ts";
 import { ModelRegistry } from "./model-registry.ts";
+import type { ScopedModel } from "./model-resolver.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { NestedContextManager } from "./nested-context/index.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
@@ -206,8 +208,8 @@ export interface AgentSessionConfig {
 	settingsManager: SettingsManager;
 	cwd: string;
 	agentDir?: string;
-	/** Models to cycle through with Ctrl+P (from --models flag) */
-	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	/** Saved model profiles or CLI-scoped models to cycle through with Ctrl+P. */
+	scopedModels?: ScopedModel[];
 	/** Resource loader for extensions, skills, prompts, themes, context files, and system prompt */
 	resourceLoader: ResourceLoader;
 	/** SDK custom tools registered outside extensions */
@@ -262,7 +264,7 @@ export interface PromptOptions {
 export interface ModelCycleResult {
 	model: Model<any>;
 	thinkingLevel: ThinkingLevel;
-	/** Whether cycling through scoped models (--models flag) or all available */
+	/** Whether cycling through saved/CLI-scoped profiles or all available models. */
 	isScoped: boolean;
 }
 
@@ -323,7 +325,7 @@ export class AgentSession {
 	readonly sessionManager: SessionManager;
 	readonly settingsManager: SettingsManager;
 
-	private _scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	private _scopedModels: ScopedModel[];
 
 	// Event subscription state
 	private _unsubscribeAgent?: () => void;
@@ -1221,13 +1223,13 @@ export class AgentSession {
 		return this.sessionManager.getSessionName();
 	}
 
-	/** Scoped models for cycling (from --models flag) */
-	get scopedModels(): ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }> {
+	/** Saved model profiles or CLI-scoped models used for cycling. */
+	get scopedModels(): ReadonlyArray<ScopedModel> {
 		return this._scopedModels;
 	}
 
 	/** Update scoped models for cycling */
-	setScopedModels(scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>): void {
+	setScopedModels(scopedModels: ScopedModel[]): void {
 		this._scopedModels = scopedModels;
 	}
 
@@ -1889,33 +1891,41 @@ export class AgentSession {
 	 * @throws Error if no auth is configured for the model
 	 */
 	async setModel(model: Model<any>): Promise<void> {
+		await this.setModelProfile({
+			model,
+			contextWindow: model.contextWindow,
+			thinkingLevel: this._getThinkingLevelForModelSwitch(),
+		});
+	}
+
+	async setModelProfile(profile: ModelProfile): Promise<void> {
+		await this._setModelProfile(profile, "set");
+	}
+
+	private async _setModelProfile(profile: ModelProfile, source: "set" | "cycle"): Promise<void> {
+		const model = withProfileContextWindow(profile.model, profile.contextWindow);
+		const thinkingLevel = clampThinkingLevel(model, profile.thinkingLevel) as ThinkingLevel;
 		if (!(await this._modelRuntime.checkAuth(model.provider))) {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
 
 		const previousModel = this.model;
-		const thinkingLevel = this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = model;
-		this.sessionManager.appendModelChange(model.provider, model.id);
-		this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
-
-		// Re-clamp thinking level for new model's capabilities
+		this.sessionManager.appendModelChange(model.provider, model.id, profile.contextWindow);
+		this.settingsManager.setDefaultModelProfile(model.provider, model.id, profile.contextWindow, thinkingLevel);
 		this.setThinkingLevel(thinkingLevel);
 
-		await this._emitModelSelect(model, previousModel, "set");
+		await this._emitModelSelect(model, previousModel, source);
 	}
 
 	/**
 	 * Cycle to next/previous model.
-	 * Uses scoped models (from --models flag) if available, otherwise all available models.
+	 * Uses saved model profiles or CLI-scoped models exclusively.
 	 * @param direction - "forward" (default) or "backward"
-	 * @returns The new model info, or undefined if only one model available
+	 * @returns The new model info, or undefined when fewer than two profiles are saved
 	 */
 	async cycleModel(direction: "forward" | "backward" = "forward"): Promise<ModelCycleResult | undefined> {
-		if (this._scopedModels.length > 0) {
-			return this._cycleScopedModel(direction);
-		}
-		return this._cycleAvailableModel(direction);
+		return this._scopedModels.length > 0 ? this._cycleScopedModel(direction) : undefined;
 	}
 
 	private async _cycleScopedModel(direction: "forward" | "backward"): Promise<ModelCycleResult | undefined> {
@@ -1928,53 +1938,28 @@ export class AgentSession {
 		if (scopedModels.length <= 1) return undefined;
 
 		const currentModel = this.model;
-		let currentIndex = scopedModels.findIndex((sm) => modelsAreEqual(sm.model, currentModel));
+		const currentIndex = scopedModels.findIndex(
+			(scoped) =>
+				modelsAreEqual(scoped.model, currentModel) &&
+				(scoped.contextWindow ?? scoped.model.contextWindow) === currentModel?.contextWindow &&
+				(scoped.thinkingLevel === undefined || scoped.thinkingLevel === this.thinkingLevel),
+		);
 
-		if (currentIndex === -1) currentIndex = 0;
 		const len = scopedModels.length;
-		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
+		const nextIndex =
+			currentIndex === -1
+				? direction === "forward"
+					? 0
+					: len - 1
+				: direction === "forward"
+					? (currentIndex + 1) % len
+					: (currentIndex - 1 + len) % len;
 		const next = scopedModels[nextIndex];
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.thinkingLevel);
+		const contextWindow = next.contextWindow ?? next.model.contextWindow;
+		await this._setModelProfile({ model: next.model, contextWindow, thinkingLevel }, "cycle");
 
-		// Apply model
-		this.agent.state.model = next.model;
-		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
-		this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
-
-		// Apply thinking level.
-		// - Explicit scoped model thinking level overrides current session level
-		// - Undefined scoped model thinking level inherits the current session preference
-		// setThinkingLevel clamps to model capabilities.
-		this.setThinkingLevel(thinkingLevel);
-
-		await this._emitModelSelect(next.model, currentModel, "cycle");
-
-		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
-	}
-
-	private async _cycleAvailableModel(direction: "forward" | "backward"): Promise<ModelCycleResult | undefined> {
-		const availableModels = this._modelRuntime.getAvailableSnapshot();
-		if (availableModels.length <= 1) return undefined;
-
-		const currentModel = this.model;
-		let currentIndex = availableModels.findIndex((m) => modelsAreEqual(m, currentModel));
-
-		if (currentIndex === -1) currentIndex = 0;
-		const len = availableModels.length;
-		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
-		const nextModel = availableModels[nextIndex];
-
-		const thinkingLevel = this._getThinkingLevelForModelSwitch();
-		this.agent.state.model = nextModel;
-		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
-		this.settingsManager.setDefaultModelAndProvider(nextModel.provider, nextModel.id);
-
-		// Re-clamp thinking level for new model's capabilities
-		this.setThinkingLevel(thinkingLevel);
-
-		await this._emitModelSelect(nextModel, currentModel, "cycle");
-
-		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
+		return { model: this.model!, thinkingLevel: this.thinkingLevel, isScoped: true };
 	}
 
 	// =========================================================================
@@ -2390,13 +2375,9 @@ export class AgentSession {
 				return false;
 			}
 
-			// Case 1: remove the failed or truncated message from agent state, compact, and
-			// retry once. The message remains in session history but is excluded from retry context.
+			// Case 1: compact and retry once. Keep the failed response in live state until
+			// compaction succeeds so a failed recovery does not desynchronize it from history.
 			this._overflowRecoveryAttempted = true;
-			const messages = this.agent.state.messages;
-			if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
-				this.agent.state.messages = messages.slice(0, -1);
-			}
 			return await this._runAutoCompaction("overflow", willRetry);
 		}
 
@@ -2610,10 +2591,8 @@ export class AgentSession {
 			if (willRetry) {
 				const messages = this.agent.state.messages;
 				const lastMsg = messages[messages.length - 1];
-				// The overflow response was persisted on message_end before _checkCompaction() removed it
-				// from agent state. Rebuilding state from the new compaction can restore that kept entry,
-				// leaving an assistant as the final message. agent.continue() rejects that state, so remove
-				// the retriable error or truncated-length response again before continuing the interrupted turn.
+				// The failed response remains persisted for the transcript, but continuing from an
+				// assistant is invalid. Remove it from the successfully rebuilt live context only now.
 				if (lastMsg?.role === "assistant" && (lastMsg.stopReason === "error" || lastMsg.stopReason === "length")) {
 					this.agent.state.messages = messages.slice(0, -1);
 				}

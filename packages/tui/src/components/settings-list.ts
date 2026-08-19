@@ -74,6 +74,10 @@ export class SettingsList implements Component {
 		}
 	}
 
+	hasOpenSubmenu(): boolean {
+		return this.submenuComponent !== null;
+	}
+
 	invalidate(): void {
 		this.submenuComponent?.invalidate?.();
 	}

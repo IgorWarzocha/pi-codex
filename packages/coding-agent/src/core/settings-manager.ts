@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
+import { isSavedModelProfile, type SavedModelProfile } from "../product/model-profiles.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 
@@ -133,7 +134,9 @@ export interface Settings {
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
+	defaultContextWindow?: number;
 	defaultThinkingLevel?: ThinkingLevel;
+	savedModelProfiles?: SavedModelProfile[];
 	executionMode?: "normal" | "code" | "notebook"; // default: "code" for Responses Lite-capable Pi-Codex models
 	notebook?: NotebookSettings;
 	piCodex?: PiCodexSettings;
@@ -732,6 +735,10 @@ export class SettingsManager {
 		return this.settings.defaultModel;
 	}
 
+	getDefaultContextWindow(): number | undefined {
+		return this.settings.defaultContextWindow;
+	}
+
 	setDefaultProvider(provider: string): void {
 		this.globalSettings.defaultProvider = provider;
 		this.markModified("defaultProvider");
@@ -749,6 +756,34 @@ export class SettingsManager {
 		this.globalSettings.defaultModel = modelId;
 		this.markModified("defaultProvider");
 		this.markModified("defaultModel");
+		this.save();
+	}
+
+	setDefaultModelProfile(
+		provider: string,
+		modelId: string,
+		contextWindow: number,
+		thinkingLevel: ThinkingLevel,
+	): void {
+		this.globalSettings.defaultProvider = provider;
+		this.globalSettings.defaultModel = modelId;
+		this.globalSettings.defaultContextWindow = contextWindow;
+		this.globalSettings.defaultThinkingLevel = thinkingLevel;
+		this.markModified("defaultProvider");
+		this.markModified("defaultModel");
+		this.markModified("defaultContextWindow");
+		this.markModified("defaultThinkingLevel");
+		this.save();
+	}
+
+	getSavedModelProfiles(): SavedModelProfile[] {
+		const profiles: unknown = this.settings.savedModelProfiles;
+		return Array.isArray(profiles) ? structuredClone(profiles.filter(isSavedModelProfile)) : [];
+	}
+
+	setSavedModelProfiles(profiles: readonly SavedModelProfile[]): void {
+		this.globalSettings.savedModelProfiles = structuredClone([...profiles]);
+		this.markModified("savedModelProfiles");
 		this.save();
 	}
 

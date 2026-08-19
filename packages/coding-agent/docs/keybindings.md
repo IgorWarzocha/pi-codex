@@ -177,18 +177,23 @@ This routing remains configurable through the ordinary action bindings. For exam
 | `app.tree.filter.cycleForward` | `ctrl+o` | Cycle tree filter forward |
 | `app.tree.filter.cycleBackward` | `shift+ctrl+o` | Cycle tree filter backward |
 
-### Scoped Models Selector
+### Model Profile Selector
 
-Used inside the scoped models selector (opened via `/scoped-models`).
+Used inside the model profile selector (opened via `/model` or `/scoped-models`). Arrow keys choose the model,
+context window, and reasoning level.
 
 | Keybinding id | Default | Description |
 |--------|---------|-------------|
-| `app.models.save` | `ctrl+s` | Save current model selection to settings |
-| `app.models.enableAll` | `ctrl+a` | Enable all models (or all matching the current search) |
-| `app.models.clearAll` | `ctrl+x` | Clear all models (or all matching the current search) |
-| `app.models.toggleProvider` | `ctrl+p` | Toggle all models for the current provider |
-| `app.models.reorderUp` | `alt+up` | Move the selected model up in the cycle order |
-| `app.models.reorderDown` | `alt+down` | Move the selected model down in the cycle order |
+| `app.models.save` | `ctrl+s` | Toggle the selected profile in the saved model cycle |
+
+### Settings
+
+Used inside the tabbed `/settings` screen. Left and right arrows also switch sections.
+
+| Keybinding id | Default | Description |
+|--------|---------|-------------|
+| `app.settings.nextTab` | `tab`, `right` | Open the next settings section |
+| `app.settings.previousTab` | `shift+tab`, `left` | Open the previous settings section |
 
 ## Custom Configuration
 

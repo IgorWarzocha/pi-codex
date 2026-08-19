@@ -62,8 +62,22 @@ function thinkingLevel(id: string, parentId: string | null, level: string): Thin
 	return { type: "thinking_level_change", id, parentId, timestamp: "2025-01-01T00:00:00Z", thinkingLevel: level };
 }
 
-function modelChange(id: string, parentId: string | null, provider: string, modelId: string): ModelChangeEntry {
-	return { type: "model_change", id, parentId, timestamp: "2025-01-01T00:00:00Z", provider, modelId };
+function modelChange(
+	id: string,
+	parentId: string | null,
+	provider: string,
+	modelId: string,
+	contextWindow?: number,
+): ModelChangeEntry {
+	return {
+		type: "model_change",
+		id,
+		parentId,
+		timestamp: "2025-01-01T00:00:00Z",
+		provider,
+		modelId,
+		...(contextWindow !== undefined ? { contextWindow } : {}),
+	};
 }
 
 describe("buildSessionContext", () => {
@@ -120,6 +134,18 @@ describe("buildSessionContext", () => {
 			const ctx = buildSessionContext(entries);
 			// Assistant message overwrites model change
 			expect(ctx.model).toEqual({ provider: "anthropic", modelId: "claude-test" });
+		});
+
+		it("retains a selected context window across responses from the same model", () => {
+			const entries: SessionEntry[] = [
+				modelChange("1", null, "anthropic", "claude-test", 872_000),
+				msg("2", "1", "assistant", "hi"),
+			];
+			expect(buildSessionContext(entries).model).toEqual({
+				provider: "anthropic",
+				modelId: "claude-test",
+				contextWindow: 872_000,
+			});
 		});
 	});
 

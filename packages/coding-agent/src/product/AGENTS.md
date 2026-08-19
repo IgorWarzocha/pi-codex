@@ -1,2 +1,3 @@
 - This directory is the Pi-Codex composition boundary. Select bundled providers and extensions here; do not scatter product flags through generic runtime code.
 - Product defaults may be overridden explicitly by tests or embedders, but the shipped CLI must remain Codex-only.
+- Keep the shipped Luna/Terra/Sol profile choices and context-window presets in `model-profiles.ts`; generic profile application belongs in core.

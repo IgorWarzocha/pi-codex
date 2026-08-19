@@ -44,6 +44,7 @@ import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
+import { withProfileContextWindow } from "./core/model-profile.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
 import { ModelRuntime } from "./core/model-runtime.ts";
 import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
@@ -64,6 +65,7 @@ import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
+import { resolveSavedModelProfiles } from "./product/model-profiles.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
 
@@ -496,17 +498,33 @@ function buildSessionOptions(
 		// Check if saved default is in scoped models - use it if so, otherwise first scoped model
 		const savedProvider = settingsManager.getDefaultProvider();
 		const savedModelId = settingsManager.getDefaultModel();
+		const savedContextWindow = settingsManager.getDefaultContextWindow();
+		const savedThinkingLevel = settingsManager.getDefaultThinkingLevel();
 		const savedModel = savedProvider && savedModelId ? modelRuntime.getModel(savedProvider, savedModelId) : undefined;
-		const savedInScope = savedModel ? scopedModels.find((sm) => modelsAreEqual(sm.model, savedModel)) : undefined;
+		const savedInScope = savedModel
+			? (scopedModels.find(
+					(scoped) =>
+						modelsAreEqual(scoped.model, savedModel) &&
+						(savedContextWindow === undefined ||
+							(scoped.contextWindow ?? scoped.model.contextWindow) === savedContextWindow) &&
+						(savedThinkingLevel === undefined || scoped.thinkingLevel === savedThinkingLevel),
+				) ?? scopedModels.find((scoped) => modelsAreEqual(scoped.model, savedModel)))
+			: undefined;
 
 		if (savedInScope) {
-			options.model = savedInScope.model;
+			options.model = withProfileContextWindow(
+				savedInScope.model,
+				savedInScope.contextWindow ?? savedInScope.model.contextWindow,
+			);
 			// Use thinking level from scoped model config if explicitly set
 			if (!parsed.thinking && savedInScope.thinkingLevel) {
 				options.thinkingLevel = savedInScope.thinkingLevel;
 			}
 		} else {
-			options.model = scopedModels[0].model;
+			options.model = withProfileContextWindow(
+				scopedModels[0].model,
+				scopedModels[0].contextWindow ?? scopedModels[0].model.contextWindow,
+			);
 			// Use thinking level from first scoped model if explicitly set
 			if (!parsed.thinking && scopedModels[0].thinkingLevel) {
 				options.thinkingLevel = scopedModels[0].thinkingLevel;
@@ -526,6 +544,7 @@ function buildSessionOptions(
 		options.scopedModels = scopedModels.map((sm) => ({
 			model: sm.model,
 			thinkingLevel: sm.thinkingLevel,
+			contextWindow: sm.contextWindow,
 		}));
 	}
 
@@ -792,10 +811,13 @@ export async function main(args: string[], options?: MainOptions) {
 		];
 
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
+		const savedProfiles = parsed.models ? [] : settingsManager.getSavedModelProfiles();
 		const scopedModels =
-			modelPatterns && modelPatterns.length > 0
-				? await resolveModelScope(modelPatterns, modelRuntime, { signal: AbortSignal.timeout(15_000) })
-				: [];
+			savedProfiles.length > 0
+				? resolveSavedModelProfiles(savedProfiles, modelRuntime.getAvailableSnapshot())
+				: modelPatterns && modelPatterns.length > 0
+					? await resolveModelScope(modelPatterns, modelRuntime, { signal: AbortSignal.timeout(15_000) })
+					: [];
 		const {
 			options: sessionOptions,
 			cliThinkingFromModel,

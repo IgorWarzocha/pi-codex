@@ -17,7 +17,8 @@ import type { CodexSessionRuntime } from "./codex-session-runtime.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
-import { findInitialModel } from "./model-resolver.ts";
+import { withProfileContextWindow } from "./model-profile.ts";
+import { findInitialModel, type ScopedModel } from "./model-resolver.ts";
 import { ModelRuntime } from "./model-runtime.ts";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
 import type { ResourceLoader } from "./resource-loader.ts";
@@ -43,7 +44,7 @@ export interface CreateAgentSessionOptions {
 	/** Thinking level. Default: from settings, else 'medium' (clamped to model capabilities) */
 	thinkingLevel?: ThinkingLevel;
 	/** Models available for cycling (Ctrl+P in interactive mode) */
-	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	scopedModels?: ScopedModel[];
 
 	/**
 	 * Optional default tool suppression mode when no explicit allowlist is provided.
@@ -175,7 +176,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	if (!model && hasExistingSession && existingSession.model) {
 		const restoredModel = modelRuntime.getModel(existingSession.model.provider, existingSession.model.modelId);
 		if (restoredModel && modelRuntime.hasConfiguredAuth(restoredModel.provider)) {
-			model = restoredModel;
+			model = withProfileContextWindow(
+				restoredModel,
+				existingSession.model.contextWindow ?? restoredModel.contextWindow,
+			);
 		}
 		if (!model) {
 			modelFallbackMessage = `Could not restore model ${existingSession.model.provider}/${existingSession.model.modelId}`;
@@ -189,6 +193,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			isContinuing: hasExistingSession,
 			defaultProvider: settingsManager.getDefaultProvider(),
 			defaultModelId: settingsManager.getDefaultModel(),
+			defaultContextWindow: settingsManager.getDefaultContextWindow(),
 			defaultThinkingLevel: settingsManager.getDefaultThinkingLevel(),
 			modelRuntime,
 		});
@@ -377,7 +382,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	} else {
 		// Save initial model and thinking level for new sessions so they can be restored on resume
 		if (model) {
-			sessionManager.appendModelChange(model.provider, model.id);
+			sessionManager.appendModelChange(model.provider, model.id, model.contextWindow);
 		}
 		sessionManager.appendThinkingLevelChange(thinkingLevel);
 	}

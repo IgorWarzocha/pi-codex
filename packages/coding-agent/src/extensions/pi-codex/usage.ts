@@ -1,4 +1,5 @@
 import { resolveNativePiCodexConfig } from "../../adapter/activation/config.ts";
+import { PI_CODEX_CONFIG_CHANGED_CHANNEL } from "../../adapter/activation/config-events.ts";
 import { buildStatusText, STATUS_KEY } from "../../adapter/activation/tool-set.ts";
 import {
 	consumeCodexRateLimitResetCredit,
@@ -20,6 +21,7 @@ function formatResetOutcome(outcome: Awaited<ReturnType<typeof consumeCodexRateL
 
 export function registerPiCodexUsage(pi: ExtensionAPI): void {
 	let generation = 0;
+	let activeContext: ExtensionContext | undefined;
 	const refreshStatus = async (ctx: ExtensionContext) => {
 		const currentGeneration = ++generation;
 		const settings = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
@@ -71,11 +73,18 @@ export function registerPiCodexUsage(pi: ExtensionAPI): void {
 			}
 		},
 	});
-	pi.on("session_start", (_event, ctx) => void refreshStatus(ctx));
+	pi.events.on(PI_CODEX_CONFIG_CHANGED_CHANNEL, () => {
+		if (activeContext) void refreshStatus(activeContext);
+	});
+	pi.on("session_start", (_event, ctx) => {
+		activeContext = ctx;
+		void refreshStatus(ctx);
+	});
 	pi.on("model_select", (_event, ctx) => void refreshStatus(ctx));
 	pi.on("agent_settled", (_event, ctx) => void refreshStatus(ctx));
 	pi.on("session_shutdown", (_event, ctx) => {
 		generation += 1;
+		activeContext = undefined;
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 	});
 }

@@ -102,6 +102,13 @@ describe("isContextOverflow", () => {
 		expect(isContextOverflow(message, 200000)).toBe(false);
 	});
 
+	it("prefers a structured context error code over unfamiliar provider wording", () => {
+		const message = createErrorMessage("The request could not be processed");
+		message.errorCode = "context_length_exceeded";
+		message.errorStatus = 400;
+		expect(isContextOverflow(message, 200000)).toBe(true);
+	});
+
 	function createLengthStopMessage(options: {
 		input: number;
 		cacheRead: number;

@@ -41,11 +41,8 @@ export interface AppKeybindings {
 	"app.session.delete": true;
 	"app.session.deleteNoninvasive": true;
 	"app.models.save": true;
-	"app.models.enableAll": true;
-	"app.models.clearAll": true;
-	"app.models.toggleProvider": true;
-	"app.models.reorderUp": true;
-	"app.models.reorderDown": true;
+	"app.settings.nextTab": true;
+	"app.settings.previousTab": true;
 	"app.tree.filter.default": true;
 	"app.tree.filter.noTools": true;
 	"app.tree.filter.userOnly": true;
@@ -154,27 +151,15 @@ export const KEYBINDINGS = {
 	},
 	"app.models.save": {
 		defaultKeys: "ctrl+s",
-		description: "Save model selection",
+		description: "Toggle saved model profile",
 	},
-	"app.models.enableAll": {
-		defaultKeys: "ctrl+a",
-		description: "Enable all models",
+	"app.settings.nextTab": {
+		defaultKeys: ["tab", "right"],
+		description: "Open next settings tab",
 	},
-	"app.models.clearAll": {
-		defaultKeys: "ctrl+x",
-		description: "Clear all models",
-	},
-	"app.models.toggleProvider": {
-		defaultKeys: "ctrl+p",
-		description: "Toggle all models for provider",
-	},
-	"app.models.reorderUp": {
-		defaultKeys: "alt+up",
-		description: "Move model up in order",
-	},
-	"app.models.reorderDown": {
-		defaultKeys: "alt+down",
-		description: "Move model down in order",
+	"app.settings.previousTab": {
+		defaultKeys: ["shift+tab", "left"],
+		description: "Open previous settings tab",
 	},
 	"app.tree.filter.default": {
 		defaultKeys: "ctrl+d",

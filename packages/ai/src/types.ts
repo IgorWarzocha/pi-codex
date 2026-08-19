@@ -447,6 +447,10 @@ export interface AssistantMessage {
 	stopReason: StopReason;
 	deferred?: DeferredHandle;
 	errorMessage?: string;
+	/** Stable provider error code when the upstream exposes one. */
+	errorCode?: string;
+	/** HTTP or protocol status associated with the provider error. */
+	errorStatus?: number;
 	rawStopReason?: string;
 	/**
 	 * Provider indication of whether the model explicitly ended its turn.

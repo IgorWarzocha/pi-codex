@@ -32,6 +32,8 @@ function createAssistant(
 	options: {
 		stopReason?: AssistantMessage["stopReason"];
 		errorMessage?: string;
+		errorCode?: string;
+		errorStatus?: number;
 		totalTokens?: number;
 		timestamp?: number;
 	},
@@ -46,6 +48,8 @@ function createAssistant(
 		api: model.api,
 		provider: model.provider,
 		model: model.id,
+		...(options.errorCode ? { errorCode: options.errorCode } : {}),
+		...(options.errorStatus !== undefined ? { errorStatus: options.errorStatus } : {}),
 		usage: createUsage(options.totalTokens ?? 0),
 	};
 }
@@ -523,6 +527,45 @@ describe("AgentSession compaction characterization", () => {
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 
 		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(true);
+	});
+
+	it("uses structured overflow errors and preserves live state when recovery fails", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		harness.sessionManager.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "request beyond the context window" }],
+			timestamp: Date.now() - 100,
+		});
+		const overflowMessage = createAssistant(harness, {
+			stopReason: "error",
+			errorMessage: "Opaque provider failure",
+			errorCode: "context_length_exceeded",
+			errorStatus: 400,
+			timestamp: Date.now(),
+		});
+		harness.sessionManager.appendMessage(overflowMessage);
+		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+		const liveFailure = harness.session.agent.state.messages.at(-1);
+		if (liveFailure?.role !== "assistant") throw new Error("Expected live assistant failure");
+		harness.session.agent.streamFunction = () => {
+			throw new Error("summary generator blew up");
+		};
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		await expect(sessionInternals._checkCompaction(liveFailure)).resolves.toBe(false);
+
+		expect(harness.eventsOfType("compaction_start").at(-1)?.reason).toBe("overflow");
+		expect(harness.eventsOfType("compaction_end").at(-1)?.errorMessage).toBe(
+			"Context overflow recovery failed: summary generator blew up",
+		);
+		expect(harness.session.agent.state.messages.at(-1)).toBe(liveFailure);
+		expect(harness.sessionManager.buildSessionContext().messages.at(-1)).toMatchObject({
+			role: "assistant",
+			errorCode: "context_length_exceeded",
+			errorStatus: 400,
+		});
 	});
 
 	it("does not retry overflow recovery more than once", async () => {

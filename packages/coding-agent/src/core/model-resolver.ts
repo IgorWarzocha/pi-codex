@@ -14,6 +14,7 @@ import chalk from "chalk";
 import { minimatch } from "minimatch";
 import { isValidThinkingLevel } from "../cli/args.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
+import { withProfileContextWindow } from "./model-profile.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 
 /** Default model IDs for each known provider */
@@ -64,6 +65,8 @@ export interface ScopedModel {
 	model: Model<Api>;
 	/** Thinking level if explicitly specified in pattern (e.g., "model:high"), undefined otherwise */
 	thinkingLevel?: ThinkingLevel;
+	/** Explicit context-window preference for saved Pi-Codex profiles. */
+	contextWindow?: number;
 }
 
 /**
@@ -625,6 +628,7 @@ export async function findInitialModel(options: {
 	isContinuing: boolean;
 	defaultProvider?: string;
 	defaultModelId?: string;
+	defaultContextWindow?: number;
 	defaultThinkingLevel?: ThinkingLevel;
 	modelRuntime: ModelRuntime;
 }): Promise<InitialModelResult> {
@@ -635,6 +639,7 @@ export async function findInitialModel(options: {
 		isContinuing,
 		defaultProvider,
 		defaultModelId,
+		defaultContextWindow,
 		defaultThinkingLevel,
 		modelRuntime,
 	} = options;
@@ -660,9 +665,10 @@ export async function findInitialModel(options: {
 
 	// 2. Use first model from scoped models (skip if continuing/resuming)
 	if (scopedModels.length > 0 && !isContinuing) {
+		const scoped = scopedModels[0];
 		return {
-			model: scopedModels[0].model,
-			thinkingLevel: scopedModels[0].thinkingLevel ?? defaultThinkingLevel ?? DEFAULT_THINKING_LEVEL,
+			model: withProfileContextWindow(scoped.model, scoped.contextWindow ?? scoped.model.contextWindow),
+			thinkingLevel: scoped.thinkingLevel ?? defaultThinkingLevel ?? DEFAULT_THINKING_LEVEL,
 			fallbackMessage: undefined,
 		};
 	}
@@ -671,7 +677,7 @@ export async function findInitialModel(options: {
 	if (defaultProvider && defaultModelId) {
 		const found = modelRuntime.getModel(defaultProvider, defaultModelId);
 		if (found && modelRuntime.hasConfiguredAuth(found.provider)) {
-			model = found;
+			model = withProfileContextWindow(found, defaultContextWindow ?? found.contextWindow);
 			if (defaultThinkingLevel) {
 				thinkingLevel = defaultThinkingLevel;
 			}

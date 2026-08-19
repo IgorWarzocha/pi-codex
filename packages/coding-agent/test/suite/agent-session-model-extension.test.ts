@@ -69,6 +69,43 @@ describe("AgentSession model and extension characterization", () => {
 		expect(harness.session.thinkingLevel).toBe("high");
 	});
 
+	it("cycles distinct saved profiles for the same model", async () => {
+		const harness = await createHarness({
+			models: [{ id: "gpt-5.6-luna", name: "Luna", reasoning: true }],
+		});
+		harnesses.push(harness);
+		const model = harness.getModel("gpt-5.6-luna")!;
+		model.thinkingLevelMap = { xhigh: "xhigh", max: "max" };
+		harness.session.setScopedModels([
+			{ model, contextWindow: 272_000, thinkingLevel: "high" },
+			{ model, contextWindow: 472_000, thinkingLevel: "medium" },
+		]);
+		await harness.session.setModelProfile({ model, contextWindow: 272_000, thinkingLevel: "high" });
+
+		await harness.session.cycleModel();
+
+		expect(harness.session.model?.contextWindow).toBe(472_000);
+		expect(harness.session.thinkingLevel).toBe("medium");
+		expect(harness.sessionManager.buildSessionContext().model).toEqual({
+			provider: model.provider,
+			modelId: model.id,
+			contextWindow: 472_000,
+		});
+	});
+
+	it("does not cycle the raw provider catalog without saved profiles", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "gpt-5.6-luna", name: "Luna", reasoning: true },
+				{ id: "gpt-5.6-terra", name: "Terra", reasoning: true },
+			],
+		});
+		harnesses.push(harness);
+
+		await expect(harness.session.cycleModel()).resolves.toBeUndefined();
+		expect(harness.session.model?.id).toBe("gpt-5.6-luna");
+	});
+
 	it("clamps thinking levels to model capabilities and cycles available levels", async () => {
 		const harness = await createHarness({ models: [{ id: "faux-1", reasoning: false }] });
 		harnesses.push(harness);
