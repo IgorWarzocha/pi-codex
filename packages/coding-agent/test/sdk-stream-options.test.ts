@@ -8,6 +8,7 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
+import type { OpenAICodexStreamOptions, ResponsesBody } from "@earendil-works/pi-ai/providers/openai-codex";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
@@ -137,6 +138,29 @@ describe("createAgentSession stream options", () => {
 			forceCachedWebSockets: true,
 			textVerbosity: "low",
 		});
+	});
+
+	it("composes final Codex payload capture with caller callbacks", async () => {
+		let callerPayload: ResponsesBody | undefined;
+		const options = await captureStreamOptions("openai-codex-responses", {}, {
+			onPreparedPayload: (payload: ResponsesBody) => {
+				callerPayload = payload;
+			},
+		} as SimpleStreamOptions & Partial<OpenAICodexStreamOptions>);
+		const payload = {
+			model: "gpt-5.6-luna",
+			store: false,
+			stream: true,
+			input: [],
+			text: { verbosity: "low" },
+			include: [],
+			tool_choice: "auto",
+			parallel_tool_calls: false,
+		} satisfies ResponsesBody;
+
+		(options as SimpleStreamOptions & Partial<OpenAICodexStreamOptions>)?.onPreparedPayload?.(payload);
+
+		expect(callerPayload).toBe(payload);
 	});
 
 	it("defaults timeoutMs from httpIdleTimeoutMs for all providers", async () => {

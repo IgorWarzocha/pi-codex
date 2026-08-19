@@ -4,6 +4,7 @@ import {
 	type CodexDiagnosticsSink,
 	type CodexPrewarmResult,
 	prewarmOpenAICodexWebSocket,
+	type ResponsesBody,
 } from "@earendil-works/pi-ai/providers/openai-codex";
 import { type CodexConversionConfig, resolveNativePiCodexConfig } from "../adapter/activation/config.ts";
 import {
@@ -53,8 +54,7 @@ export class CodexSessionRuntime {
 	private controller: AbortController | undefined;
 	private pending: Promise<unknown> | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
-	private consecutiveRedKeepalives = 0;
-	private keepalivePaused = false;
+	private cacheKeepaliveRequest: ResponsesBody | undefined;
 
 	constructor(options: CodexSessionRuntimeOptions) {
 		this.options = options;
@@ -157,7 +157,14 @@ export class CodexSessionRuntime {
 		return this.diagnostics.sink();
 	}
 
-	private async prewarm(messages: "empty" | "current"): Promise<CodexPrewarmResult | undefined> {
+	capturePreparedRequest(payload: ResponsesBody): void {
+		if (this.config().openai.cacheKeepalive) this.cacheKeepaliveRequest = structuredClone(payload);
+	}
+
+	private async prewarm(
+		messages: "empty" | "current",
+		preparedBody?: ResponsesBody,
+	): Promise<CodexPrewarmResult | undefined> {
 		const model = this.model();
 		const config = this.config();
 		if (
@@ -185,20 +192,25 @@ export class CodexSessionRuntime {
 			);
 			if (controller.signal.aborted) return undefined;
 			const thinkingLevel = this.options.agent.state.thinkingLevel;
-			return await this.prewarmProvider(requestModel, context, {
-				apiKey,
-				headers: resolution.auth.headers,
-				env: resolution.env,
-				sessionId: this.options.sessionManager.getSessionId(),
-				signal: controller.signal,
-				executionMode: this.options.getExecutionMode(),
-				forceCachedWebSockets: config.openai.forceCachedWebSockets,
-				fast: config.openai.fast,
-				responsesCompaction: config.compaction.responsesCompaction,
-				textVerbosity: config.openai.verbosity,
-				diagnostics: this.diagnostics.sink(),
-				...(thinkingLevel === "off" ? {} : { reasoningEffort: thinkingLevel }),
-			});
+			return await this.prewarmProvider(
+				requestModel,
+				context,
+				{
+					apiKey,
+					headers: resolution.auth.headers,
+					env: resolution.env,
+					sessionId: this.options.sessionManager.getSessionId(),
+					signal: controller.signal,
+					executionMode: this.options.getExecutionMode(),
+					forceCachedWebSockets: config.openai.forceCachedWebSockets,
+					fast: config.openai.fast,
+					responsesCompaction: config.compaction.responsesCompaction,
+					textVerbosity: config.openai.verbosity,
+					diagnostics: this.diagnostics.sink(),
+					...(thinkingLevel === "off" ? {} : { reasoningEffort: thinkingLevel }),
+				},
+				preparedBody ? { preparedBody, preserveContinuation: true } : undefined,
+			);
 		} finally {
 			if (this.controller === controller) this.controller = undefined;
 		}
@@ -225,7 +237,7 @@ export class CodexSessionRuntime {
 
 	async agentSettled(): Promise<void> {
 		await this.configureDiagnostics();
-		this.armKeepalive(true);
+		this.armKeepalive();
 	}
 
 	beforeCompaction(): void {
@@ -247,6 +259,7 @@ export class CodexSessionRuntime {
 
 	afterCompaction(): void {
 		this.compactionState.pendingPiCompactionNativeWindow = undefined;
+		this.cacheKeepaliveRequest = undefined;
 		this.track(
 			this.prewarm("current").catch((error: unknown) => {
 				if (!isAbortError(error))
@@ -260,48 +273,25 @@ export class CodexSessionRuntime {
 
 	async modelChanged(): Promise<void> {
 		this.cancel();
+		this.cacheKeepaliveRequest = undefined;
 		await this.configureDiagnostics();
 	}
 
-	private armKeepalive(resetHealth: boolean): void {
+	private armKeepalive(): void {
 		this.cancelTimer();
-		if (resetHealth) {
-			this.consecutiveRedKeepalives = 0;
-			this.keepalivePaused = false;
-		}
 		const config = this.config();
-		if (!config.openai.cacheKeepalive || this.keepalivePaused) return;
+		if (!config.openai.cacheKeepalive) return;
 		this.timer = setTimeout(() => {
 			this.timer = undefined;
 			if (!this.options.isIdle()) return;
+			const preparedBody = this.cacheKeepaliveRequest;
+			if (!preparedBody) return;
 			this.track(
-				this.prewarm("current")
+				this.prewarm("current", preparedBody)
 					.then((result) => {
-						if (!result?.usage) {
-							this.consecutiveRedKeepalives = 0;
-							this.notify("Codex cache keepalive completed without usage metrics", "warning");
-							this.armKeepalive(false);
-							return;
-						}
-						const usage = result.usage;
-						const total = usage.inputTokens + usage.cachedInputTokens;
-						const ratio = total > 0 ? usage.cachedInputTokens / total : undefined;
-						if (ratio !== undefined && ratio <= 0.1) this.consecutiveRedKeepalives += 1;
-						else this.consecutiveRedKeepalives = 0;
-						this.notify(
-							`Codex cache keepalive · input ${usage.inputTokens.toLocaleString("en-US")} · read ${usage.cachedInputTokens.toLocaleString("en-US")} · write ${usage.cacheWriteInputTokens.toLocaleString("en-US")} · ${ratio === undefined ? "cache unavailable" : `${(ratio * 100).toFixed(1)}%`} · WS ${result.socketReused ? "reused" : "new"}`,
-							ratio !== undefined && ratio <= 0.1
-								? "error"
-								: ratio !== undefined && ratio < 0.5
-									? "warning"
-									: "info",
-						);
-						if (this.consecutiveRedKeepalives >= 2) {
-							this.keepalivePaused = true;
-							this.notify("Codex cache keepalive paused after two consecutive ≤10% reads", "error");
-							return;
-						}
-						this.armKeepalive(false);
+						if (!result) return;
+						this.notify(`Codex cache keepalive refreshed · WS ${result.socketReused ? "reused" : "new"}`, "info");
+						this.armKeepalive();
 					})
 					.catch((error: unknown) => {
 						if (isAbortError(error)) return;
@@ -309,7 +299,7 @@ export class CodexSessionRuntime {
 							`Codex cache keepalive failed: ${error instanceof Error ? error.message : String(error)}`,
 							"warning",
 						);
-						this.armKeepalive(false);
+						this.armKeepalive();
 					}),
 			);
 		}, KEEPALIVE_INTERVAL_MS);

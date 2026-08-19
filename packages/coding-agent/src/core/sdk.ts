@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel, type Message, type Model, type ProviderHeaders } from "@earendil-works/pi-ai";
+import type { OpenAICodexStreamOptions, ResponsesBody } from "@earendil-works/pi-ai/providers/openai-codex";
 import { getAgentDir } from "../config.ts";
 import { streamProductModel } from "../product/providers.ts";
 import {
@@ -297,6 +298,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			const headerRunner = extensionRunnerRef.current;
 			const codexExecutionMode = resolveCodexExecutionMode(model, settingsManager.getExecutionMode());
 			const piCodexSettings = settingsManager.getPiCodexSettings();
+			const incomingCodexOptions = options as Partial<OpenAICodexStreamOptions> | undefined;
 			const codexOptions =
 				model.api === "openai-codex-responses"
 					? {
@@ -306,6 +308,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 							fast: piCodexSettings.openai?.fast ?? false,
 							responsesCompaction: piCodexSettings.compaction?.responsesCompaction ?? true,
 							diagnostics: codexSessionRuntimeRef.current?.diagnosticsSink(),
+							onPreparedPayload: (payload: ResponsesBody) => {
+								incomingCodexOptions?.onPreparedPayload?.(payload);
+								codexSessionRuntimeRef.current?.capturePreparedRequest(payload);
+							},
 						}
 					: {};
 			const requestOptions = {

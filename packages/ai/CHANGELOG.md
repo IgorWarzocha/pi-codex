@@ -21,6 +21,7 @@
 ### Fixed
 
 - Bound canonical Codex compaction replay to the final instructions and ordered tools so prompt or tool changes cannot reuse stale provider state.
+- Preserved live Codex WebSocket continuation while an isolated cache keepalive replays the exact prepared provider request.
 
 ## [0.84.2] - 2026-08-14
 

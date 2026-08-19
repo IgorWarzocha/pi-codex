@@ -8,6 +8,7 @@ import {
 } from "../src/adapter/compaction/request-shrink.ts";
 
 test("GPT-5.6 Codex transport compaction uses the endpoint budget independently of model metadata", () => {
+	assert.equal(OPENAI_CODEX_COMPACTION_ENDPOINT_BUDGET_TOKENS, 872_000);
 	assert.equal(
 		resolveNativeCompactionRequestBudget({
 			codexTransport: true,

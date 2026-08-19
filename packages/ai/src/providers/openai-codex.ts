@@ -47,6 +47,7 @@ export type {
 	CodexDiagnosticsLane,
 	CodexDiagnosticsSink,
 	CodexDiagnosticsTransport,
+	CodexPrewarmOptions,
 	CodexPrewarmResult,
 	OpenAICodexStreamOptions,
 	ResponsesBody,

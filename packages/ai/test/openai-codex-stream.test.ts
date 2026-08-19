@@ -19,6 +19,7 @@ import {
 	buildRequestBody,
 	closeOpenAICodexWebSocketSessions,
 	getOpenAICodexWebSocketDebugStats,
+	prewarmOpenAICodexWebSocket,
 	resetOpenAICodexWebSocketDebugStats,
 	stream,
 	streamSimple,
@@ -539,5 +540,55 @@ describe("openai-codex provider", () => {
 			fullContextRequests: 1,
 			deltaRequests: 1,
 		});
+	});
+
+	it("replays an exact keepalive request without advancing live continuation", async () => {
+		ScriptedWebSocket.scripts = [
+			(socket) => socket.emitEvents(completedResponse("resp_live", "First")),
+			(socket) => socket.emitEvents(completedResponse("resp_keepalive")),
+			(socket) => socket.emitEvents(completedResponse("resp_second", "Second")),
+		];
+		vi.stubGlobal("WebSocket", ScriptedWebSocket);
+		let preparedBody: Parameters<NonNullable<OpenAICodexResponsesOptions["onPreparedPayload"]>>[0] | undefined;
+		const options: OpenAICodexResponsesOptions = {
+			apiKey: token(),
+			sessionId: "keepalive-session",
+			transport: "websocket-cached",
+			executionMode: "code",
+			onPreparedPayload: (body) => {
+				preparedBody = structuredClone(body);
+			},
+		};
+
+		const first = await stream(model, userContext("First user"), options).result();
+		if (!preparedBody) throw new Error("Provider did not expose its prepared request");
+		const keepaliveRequest = structuredClone(preparedBody);
+		await prewarmOpenAICodexWebSocket(model, userContext("ignored"), options, {
+			preparedBody: keepaliveRequest,
+			preserveContinuation: true,
+		});
+		const secondContext: Context = {
+			systemPrompt: "Instructions",
+			messages: [
+				{ role: "user", content: "First user", timestamp: 1 },
+				first,
+				{ role: "user", content: "Second user", timestamp: 2 },
+			],
+		};
+		await stream(model, secondContext, options).result();
+
+		const { type: firstType, ...firstBody } = ScriptedWebSocket.sent[0] ?? {};
+		const { type, generate, ...keepaliveBody } = ScriptedWebSocket.sent[1] ?? {};
+		expect(firstType).toBe("response.create");
+		expect({ type, generate }).toEqual({ type: "response.create", generate: false });
+		expect(keepaliveBody).toEqual(firstBody);
+		expect(ScriptedWebSocket.opened).toBe(2);
+		expect(ScriptedWebSocket.sent[2]?.previous_response_id).toBe("resp_live");
+		expect(ScriptedWebSocket.sent[2]?.input).toEqual([
+			{
+				role: "user",
+				content: [{ type: "input_text", text: "Second user" }],
+			},
+		]);
 	});
 });

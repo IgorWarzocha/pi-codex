@@ -34,6 +34,7 @@
 
 ### Fixed
 
+- Fixed idle Codex cache keepalives to replay the exact final provider request without treating `generate:false` usage as cache telemetry, and raised native compaction's subscription endpoint budget to 872k tokens.
 - Fixed idle custom messages with `triggerTurn: true` bypassing `before_agent_start` and native Codex turn preparation.
 - Fixed transient Notebook startup failures when another local process claims a reserved Jupyter port before the kernel binds it.
 - Fixed Codex cache miss notices to report the transport and continuation path and use the provider's 30-minute cache TTL.

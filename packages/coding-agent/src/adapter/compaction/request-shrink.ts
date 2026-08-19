@@ -3,7 +3,7 @@ import { getEncoding } from "js-tiktoken";
 import type { NativeCompactionRequestBody, ResponsesInputItem } from "./serializer.ts";
 
 export const COMPACTION_TRUNCATED_TOOL_OUTPUT_MESSAGE = "Output exceeded the available model context and was truncated";
-export const OPENAI_CODEX_COMPACTION_ENDPOINT_BUDGET_TOKENS = 372_000;
+export const OPENAI_CODEX_COMPACTION_ENDPOINT_BUDGET_TOKENS = 872_000;
 const CODEX_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 
 export type NativeCompactionShrinkResult = {

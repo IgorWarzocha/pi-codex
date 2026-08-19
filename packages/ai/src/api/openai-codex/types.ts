@@ -198,6 +198,11 @@ export interface CodexPrewarmResult {
 	usage?: CodexPrewarmUsage | undefined;
 }
 
+export interface CodexPrewarmOptions {
+	preparedBody?: ResponsesBody | undefined;
+	preserveContinuation?: boolean | undefined;
+}
+
 export interface ResponseEnvelope {
 	id?: string | undefined;
 	status?: string | undefined;

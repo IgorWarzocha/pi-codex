@@ -23,7 +23,12 @@ import { supportsResponsesLiteModel } from "./openai-codex/responses-lite-model.
 import { normalizeResponsesToolHistory } from "./openai-codex/responses-tool-history.ts";
 import { createCodexTransportStream, getEffectiveCodexTransport } from "./openai-codex/transport-recovery.ts";
 import { createCodexTurnState, withCodexTurnState } from "./openai-codex/turn-state.ts";
-import type { CodexPrewarmResult, OpenAICodexStreamOptions, ResponsesBody } from "./openai-codex/types.ts";
+import type {
+	CodexPrewarmOptions,
+	CodexPrewarmResult,
+	OpenAICodexStreamOptions,
+	ResponsesBody,
+} from "./openai-codex/types.ts";
 import {
 	closeOpenAICodexWebSocketSessions,
 	getOpenAICodexWebSocketDebugStats,
@@ -125,6 +130,7 @@ export async function prewarmOpenAICodexWebSocket<TApi extends Api>(
 	model: Model<TApi>,
 	context: Context,
 	rawOptions: OpenAICodexResponsesOptions,
+	prewarmOptions: CodexPrewarmOptions = {},
 ): Promise<CodexPrewarmResult | undefined> {
 	const options = normalizeSessionOptions(rawOptions);
 	if (!options?.apiKey || !options.sessionId) return;
@@ -141,7 +147,9 @@ export async function prewarmOpenAICodexWebSocket<TApi extends Api>(
 		grammarToolInputProperties,
 		...(options.responsesCompaction ? { headers: withRemoteCompactionV2Feature(options.headers) } : {}),
 	};
-	const body = await prepareCodexRequestBody(model, context, effectiveOptions, responsesLite);
+	const body = prewarmOptions.preparedBody
+		? structuredClone(prewarmOptions.preparedBody)
+		: await prepareCodexRequestBody(model, context, effectiveOptions, responsesLite);
 	const accountId = extractAccountId(options.apiKey);
 	const routing = resolveCodexRequestRouting({
 		model: body.model,
@@ -158,9 +166,10 @@ export async function prewarmOpenAICodexWebSocket<TApi extends Api>(
 		routing.originator,
 		routing.routingHint,
 	);
+	const turnState = prewarmOptions.preserveContinuation ? undefined : options.turnState;
 	const websocketBody = withCodexTurnState(
 		responsesLite ? applyResponsesLiteWebSocketMetadata(body) : body,
-		options.turnState,
+		turnState,
 	);
 	try {
 		return await prewarmWebSocket(
@@ -169,8 +178,9 @@ export async function prewarmOpenAICodexWebSocket<TApi extends Api>(
 			headers,
 			accountId,
 			effectiveOptions,
-			options.turnState,
+			turnState,
 			noThrowCodexDiagnosticsSink(options.diagnostics),
+			prewarmOptions.preserveContinuation,
 		);
 	} catch (error) {
 		if (
@@ -192,4 +202,4 @@ export {
 	getOpenAICodexWebSocketDebugStats,
 	resetOpenAICodexWebSocketDebugStats,
 };
-export type { OpenAICodexWebSocketDebugStats, ResponsesBody };
+export type { CodexPrewarmOptions, OpenAICodexWebSocketDebugStats, ResponsesBody };
