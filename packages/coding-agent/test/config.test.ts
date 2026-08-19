@@ -4,14 +4,21 @@ import { delimiter, join } from "path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
 	detectInstallMethod,
+	ENV_AGENT_DIR,
+	ENV_APP_HOME,
+	getAgentDir,
+	getAppHomeDir,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
 	getUpdateInstruction,
+	USER_CONFIG_DIR_NAME,
 } from "../src/config.ts";
 
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
 const originalPath = process.env.PATH;
 const originalPiPackageDir = process.env.PI_PACKAGE_DIR;
+const originalAgentDir = process.env[ENV_AGENT_DIR];
+const originalAppHome = process.env[ENV_APP_HOME];
 const originalArgv1 = process.argv[1];
 let tempDir: string | undefined;
 
@@ -36,6 +43,16 @@ afterEach(() => {
 	} else {
 		process.env.PI_PACKAGE_DIR = originalPiPackageDir;
 	}
+	if (originalAgentDir === undefined) {
+		delete process.env[ENV_AGENT_DIR];
+	} else {
+		process.env[ENV_AGENT_DIR] = originalAgentDir;
+	}
+	if (originalAppHome === undefined) {
+		delete process.env[ENV_APP_HOME];
+	} else {
+		process.env[ENV_APP_HOME] = originalAppHome;
+	}
 	if (originalArgv1 === undefined) {
 		process.argv.splice(1, 1);
 	} else {
@@ -46,6 +63,26 @@ afterEach(() => {
 		rmSync(tempDir, { recursive: true, force: true });
 		tempDir = undefined;
 	}
+});
+
+describe("Pi-Codex application paths", () => {
+	test("uses a separate Pi-Codex home with Pi's normal agent layout", () => {
+		delete process.env[ENV_AGENT_DIR];
+		delete process.env[ENV_APP_HOME];
+
+		expect(USER_CONFIG_DIR_NAME).toBe(".pi-codex");
+		expect(getAppHomeDir()).toMatch(/[\\/]\.pi-codex$/);
+		expect(getAgentDir()).toMatch(/[\\/]\.pi-codex[\\/]agent$/);
+	});
+
+	test("supports an application-home override and preserves the direct agent-dir override", () => {
+		delete process.env[ENV_AGENT_DIR];
+		process.env[ENV_APP_HOME] = "/tmp/custom-pi-codex";
+		expect(getAgentDir()).toBe(join("/tmp/custom-pi-codex", "agent"));
+
+		process.env[ENV_AGENT_DIR] = "/tmp/direct-agent";
+		expect(getAgentDir()).toBe("/tmp/direct-agent");
+	});
 });
 
 function createNpmPrefixInstall(template = "pi-prefix-"): { prefix: string; packageDir: string } {

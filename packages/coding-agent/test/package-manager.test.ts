@@ -325,31 +325,6 @@ Content`,
 			expect(skill?.metadata.baseDir).toBe(projectBaseDir);
 		});
 
-		it("should use ~/.agents as baseDir for user .agents skills", async () => {
-			const previousHome = process.env.HOME;
-			process.env.HOME = tempDir;
-
-			try {
-				const agentsBaseDir = join(tempDir, ".agents");
-				const skillPath = join(agentsBaseDir, "skills", "user-agents", "SKILL.md");
-				mkdirSync(join(agentsBaseDir, "skills", "user-agents"), { recursive: true });
-				writeFileSync(skillPath, "---\nname: user-agents\ndescription: user agents\n---\n");
-
-				const result = await packageManager.resolve();
-				const skill = result.skills.find((r) => r.path === skillPath);
-
-				expect(skill?.metadata.source).toBe("auto");
-				expect(skill?.metadata.scope).toBe("user");
-				expect(skill?.metadata.baseDir).toBe(agentsBaseDir);
-			} finally {
-				if (previousHome === undefined) {
-					delete process.env.HOME;
-				} else {
-					process.env.HOME = previousHome;
-				}
-			}
-		});
-
 		it("should use each project .agents dir as baseDir for project .agents skills", async () => {
 			const repoRoot = join(tempDir, "repo");
 			const nestedCwd = join(repoRoot, "packages", "feature");
@@ -471,7 +446,7 @@ Content`,
 			expect(result.skills.some((r) => r.path === deeplyNestedSkill)).toBe(false);
 		});
 
-		it("should keep ~/.agents/skills user-scoped when cwd is under home in a non-git directory", async () => {
+		it("should not auto-discover global ~/.agents/skills", async () => {
 			const previousHome = process.env.HOME;
 			process.env.HOME = tempDir;
 
@@ -493,11 +468,7 @@ Content`,
 				});
 
 				const result = await pm.resolve();
-				const matchingSkills = result.skills.filter((r) => r.path === homeSkill);
-				expect(matchingSkills).toHaveLength(1);
-				expect(matchingSkills[0]?.enabled).toBe(true);
-				expect(matchingSkills[0]?.metadata.scope).toBe("user");
-				expect(matchingSkills[0]?.metadata.source).toBe("auto");
+				expect(result.skills.some((r) => r.path === homeSkill)).toBe(false);
 			} finally {
 				if (previousHome === undefined) {
 					delete process.env.HOME;
@@ -507,7 +478,7 @@ Content`,
 			}
 		});
 
-		it("should dedupe user skill entries when ~/.pi/agent/skills is a symlink to ~/.agents/skills", async () => {
+		it("should load the configured global skill root through a symlink once", async () => {
 			const previousHome = process.env.HOME;
 			process.env.HOME = tempDir;
 

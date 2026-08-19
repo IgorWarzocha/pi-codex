@@ -8,6 +8,7 @@ vi.mock("../src/config.ts", async (importOriginal) => {
 	return {
 		...(actual as Record<string, unknown>),
 		PACKAGE_NAME: "@example/pi-coding-agent",
+		USER_CONFIG_DIR_NAME: ".pi",
 	};
 });
 

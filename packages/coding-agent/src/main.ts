@@ -29,10 +29,24 @@ import { resolveCredentialForPrint } from "./cli/credential-print.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listModels } from "./cli/list-models.ts";
+import {
+	declinePiSettingsMigration,
+	getPiSettingsMigrationPaths,
+	importCompatiblePiSettings,
+	shouldOfferPiSettingsMigration,
+} from "./cli/pi-settings-migration.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import { selectSession } from "./cli/session-picker.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
-import { APP_NAME, ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
+import {
+	APP_NAME,
+	ENV_AGENT_DIR,
+	ENV_SESSION_DIR,
+	expandTildePath,
+	getAgentDir,
+	getPackageDir,
+	VERSION,
+} from "./config.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
 	type AgentSessionRuntimeDiagnostic,
@@ -669,6 +683,35 @@ export async function main(args: string[], options?: MainOptions) {
 
 	validateForkFlags(parsed);
 	validateSessionIdFlags(parsed);
+
+	const piSettingsMigrationPaths = getPiSettingsMigrationPaths(agentDir);
+	if (
+		appMode === "interactive" &&
+		!parsed.help &&
+		parsed.listModels === undefined &&
+		!process.env[ENV_AGENT_DIR] &&
+		shouldOfferPiSettingsMigration(piSettingsMigrationPaths)
+	) {
+		const choice = await showStartupSelector(
+			bootstrapSettingsManager,
+			"Existing Pi settings found\n\nImport compatible appearance, terminal, editor, and input preferences?\nAuthentication, sessions, models, extensions, and packages stay separate.",
+			[
+				{ label: "Import compatible settings", value: "import" as const },
+				{ label: "Start fresh", value: "fresh" as const },
+			],
+		);
+		try {
+			if (choice === "import") {
+				importCompatiblePiSettings(piSettingsMigrationPaths);
+			} else if (choice === "fresh") {
+				declinePiSettingsMigration(piSettingsMigrationPaths);
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error(chalk.yellow(`Warning: Could not migrate Pi settings: ${message}`));
+		}
+		time("piSettingsMigration");
+	}
 
 	// Run migrations (pass cwd for project-local migrations)
 	const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);

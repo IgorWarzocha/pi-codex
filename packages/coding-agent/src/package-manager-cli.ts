@@ -14,6 +14,7 @@ import {
 	PACKAGE_NAME,
 	type SelfUpdateCommand,
 	type SelfUpdatePackageTarget,
+	USER_CONFIG_DIR_NAME,
 	VERSION,
 } from "./config.ts";
 import type { InlineExtension } from "./core/extensions/types.ts";
@@ -96,7 +97,7 @@ function printConfigCommandHelp(): void {
   ${CONFIG_COMMAND_USAGE}
 
 Open the resource configuration TUI to enable or disable package resources.
-Without -l, starts in global settings (~/${CONFIG_DIR_NAME}/agent/settings.json).
+Without -l, starts in global settings (~/${USER_CONFIG_DIR_NAME}/agent/settings.json).
 Press Tab in the TUI to switch between global and project-local modes.
 
 Options:

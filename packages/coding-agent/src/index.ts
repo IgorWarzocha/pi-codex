@@ -12,11 +12,14 @@ export {
 // Config paths
 export {
 	CONFIG_DIR_NAME,
+	ENV_APP_HOME,
 	getAgentDir,
+	getAppHomeDir,
 	getDocsPath,
 	getExamplesPath,
 	getPackageDir,
 	getReadmePath,
+	USER_CONFIG_DIR_NAME,
 	VERSION,
 } from "./config.ts";
 export {

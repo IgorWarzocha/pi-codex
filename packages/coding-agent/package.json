@@ -4,7 +4,8 @@
 	"description": "Opinionated Codex TUI with native tools, Code Mode, Notebook Mode, and voice",
 	"type": "module",
 	"piConfig": {
-		"configDir": ".pi"
+		"configDir": ".pi",
+		"userConfigDir": ".pi-codex"
 	},
 	"bin": {
 		"pi": "dist/cli.js"

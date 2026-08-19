@@ -2423,7 +2423,7 @@ export class DefaultPackageManager implements PackageManager {
 			);
 		}
 
-		// User extensions from ~/.pi/agent/
+		// User extensions from the Pi-Codex agent directory.
 		addResources(
 			"extensions",
 			collectAutoExtensionEntries(userDirs.extensions),
@@ -2432,27 +2432,13 @@ export class DefaultPackageManager implements PackageManager {
 			globalBaseDir,
 		);
 
-		// User skills from ~/.pi/agent/
+		// User skills from the Pi-Codex agent directory.
 		addResources(
 			"skills",
 			collectAutoSkillEntries(userDirs.skills),
 			userMetadata,
 			userOverrides.skills,
 			globalBaseDir,
-		);
-
-		// User skills from ~/.agents/ (with its own baseDir)
-		const userAgentsBaseDir = dirname(userAgentsSkillsDir);
-		const userAgentsMetadata: PathMetadata = {
-			...userMetadata,
-			baseDir: userAgentsBaseDir,
-		};
-		addResources(
-			"skills",
-			collectAutoSkillEntries(userAgentsSkillsDir),
-			userAgentsMetadata,
-			userOverrides.skills,
-			userAgentsBaseDir,
 		);
 
 		addResources(

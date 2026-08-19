@@ -1,6 +1,14 @@
 import { ProcessTerminal, setKeybindings, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import { existsSync } from "fs";
-import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, getAgentDir, getSettingsPath, PACKAGE_NAME } from "../config.ts";
+import {
+	APP_NAME,
+	CONFIG_DIR_NAME,
+	ENV_AGENT_DIR,
+	getAgentDir,
+	getSettingsPath,
+	PACKAGE_NAME,
+	USER_CONFIG_DIR_NAME,
+} from "../config.ts";
 import { areExperimentalFeaturesEnabled } from "../core/experimental.ts";
 import { KeybindingsManager } from "../core/keybindings.ts";
 import { DefaultPackageManager, type ResolvedResource } from "../core/package-manager.ts";
@@ -31,13 +39,20 @@ interface DistributionMetadata {
 	packageName: string;
 	appName: string;
 	configDirName: string;
+	userConfigDirName: string;
 }
 
-function isOfficialDistribution({ packageName, appName, configDirName }: DistributionMetadata): boolean {
+function isOfficialDistribution({
+	packageName,
+	appName,
+	configDirName,
+	userConfigDirName,
+}: DistributionMetadata): boolean {
 	return (
 		packageName === OFFICIAL_PACKAGE_NAME &&
 		appName === OFFICIAL_APP_NAME &&
-		configDirName === OFFICIAL_CONFIG_DIR_NAME
+		configDirName === OFFICIAL_CONFIG_DIR_NAME &&
+		userConfigDirName === OFFICIAL_CONFIG_DIR_NAME
 	);
 }
 
@@ -118,6 +133,7 @@ export function shouldRunFirstTimeSetup(settingsPath: string = getSettingsPath()
 			packageName: PACKAGE_NAME,
 			appName: APP_NAME,
 			configDirName: CONFIG_DIR_NAME,
+			userConfigDirName: USER_CONFIG_DIR_NAME,
 		})
 	) {
 		return false;

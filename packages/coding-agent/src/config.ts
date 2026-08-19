@@ -473,6 +473,7 @@ interface PackageJson {
 	piConfig?: {
 		name?: string;
 		configDir?: string;
+		userConfigDir?: string;
 	};
 }
 
@@ -488,12 +489,16 @@ const piConfigName: string | undefined = pkg.piConfig?.name;
 export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
 export const APP_NAME: string = piConfigName || "pi";
 export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
+/** Project-local configuration directory. */
 export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
+/** User application home. Defaults to CONFIG_DIR_NAME for upstream-compatible distributions. */
+export const USER_CONFIG_DIR_NAME: string = pkg.piConfig?.userConfigDir || CONFIG_DIR_NAME;
 export const VERSION: string = pkg.version || "0.0.0";
 
 // e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
 export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 export const ENV_SESSION_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_SESSION_DIR`;
+export const ENV_APP_HOME = "PI_CODEX_HOME";
 
 export function expandTildePath(path: string): string {
 	return normalizePath(path);
@@ -508,16 +513,30 @@ export function getShareViewerUrl(gistId: string): string {
 }
 
 // =============================================================================
-// User Config Paths (~/.pi/agent/*)
+// User Config Paths (~/.pi-codex/agent/* for Pi-Codex)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.pi/agent/) */
+/** Get the application home containing Pi's normal agent directory structure. */
+export function getAppHomeDir(): string {
+	const envDir = process.env[ENV_APP_HOME];
+	if (envDir) {
+		return expandTildePath(envDir);
+	}
+	return join(homedir(), USER_CONFIG_DIR_NAME);
+}
+
+/** Get the agent config directory (e.g., ~/.pi-codex/agent/). */
 export function getAgentDir(): string {
 	const envDir = process.env[ENV_AGENT_DIR];
 	if (envDir) {
 		return expandTildePath(envDir);
 	}
-	return join(homedir(), CONFIG_DIR_NAME, "agent");
+	return join(getAppHomeDir(), "agent");
+}
+
+/** Stock Pi agent directory used only for the explicit settings compatibility import. */
+export function getStockPiAgentDir(): string {
+	return join(homedir(), ".pi", "agent");
 }
 
 /** Get path to user's custom themes directory */
