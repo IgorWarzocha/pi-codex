@@ -18,6 +18,7 @@
 - Added native realtime voice, dictation, GipPity LAN control, Responses Compaction V2, Codex usage and reset credits, cache diagnostics and keepalive, background shell controls, and their Pi-Codex settings.
 - Added native nested `AGENTS.md` discovery when file reads and read-like shell or Code Mode tools enter a more specific repository scope.
 - Added native skill listing and reading in Code and Notebook Mode, categorized lazy skills, per-turn rescans, path-free prompt announcements, and developer updates for newly available eager skills.
+- Added `/pi-codex-guide` with a bundled fork-differences, setup, and migration guide that the current agent can inspect and explain.
 
 ### Changed
 

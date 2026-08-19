@@ -33,6 +33,7 @@
 		"dist",
 		"CHANGELOG.md",
 		"docs/custom-tools.md",
+		"docs/pi-codex-guide.md",
 		"npm-shrinkwrap.json",
 		"code-mode/UPSTREAM_SYNC.md",
 		"code-mode/vendor/code-mode-src/LICENSE",

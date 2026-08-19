@@ -190,7 +190,7 @@ for platform in "${PLATFORMS[@]}"; do
     mkdir -p "$OUTPUT_DIR/$platform/shell"
     cp src/shell/tree-sitter-bash.wasm "$OUTPUT_DIR/$platform/shell/"
     mkdir -p "$OUTPUT_DIR/$platform/docs"
-    cp docs/custom-tools.md "$OUTPUT_DIR/$platform/docs/"
+    cp docs/custom-tools.md docs/pi-codex-guide.md "$OUTPUT_DIR/$platform/docs/"
     for tool_spec in \
         "apply-patch:apply_patch" \
         "exec:exec_bridge" \

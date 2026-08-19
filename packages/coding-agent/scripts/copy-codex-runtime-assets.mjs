@@ -29,7 +29,9 @@ copyFileSync(join(packageRoot, "src", "shell", "tree-sitter-bash.wasm"), join(sh
 
 const docsDirectory = join(outputRoot, "docs");
 mkdirSync(docsDirectory, { recursive: true });
-copyFileSync(join(packageRoot, "docs", "custom-tools.md"), join(docsDirectory, "custom-tools.md"));
+for (const name of ["custom-tools.md", "pi-codex-guide.md"]) {
+	copyFileSync(join(packageRoot, "docs", name), join(docsDirectory, name));
+}
 
 const voiceDirectory = join(outputRoot, "voice");
 mkdirSync(join(voiceDirectory, "lan"), { recursive: true });

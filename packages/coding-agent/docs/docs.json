@@ -4,6 +4,10 @@
       "title": "Start here",
       "items": [
         {
+          "title": "Pi-Codex Guide",
+          "path": "pi-codex-guide.md"
+        },
+        {
           "title": "Overview",
           "path": "index.md"
         },
