@@ -23,6 +23,7 @@ import { CONFIG_DIR_NAME, getAgentDir, isBunBinary } from "../../config.ts";
 // NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
 // avoiding a circular dependency. Extensions can import from @earendil-works/pi-coding-agent.
 import * as _bundledPiCodingAgent from "../../index.ts";
+import { isRetiredPiCodexExtension } from "../../product/extension-policy.ts";
 import { resolvePath } from "../../utils/paths.ts";
 import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
@@ -538,6 +539,9 @@ async function loadExtensionsInternal(
 	const resolvedRuntime = runtime ?? createExtensionRuntime(resolvedEventBus);
 
 	for (const extPath of paths) {
+		const resolvedExtensionPath = resolvePath(extPath, resolvedCwd, { normalizeUnicodeSpaces: true });
+		if (isRetiredPiCodexExtension(resolvedExtensionPath)) continue;
+
 		const { extension, error } = await loadExtension(
 			extPath,
 			resolvedCwd,
