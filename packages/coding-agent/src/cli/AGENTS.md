@@ -1,0 +1,2 @@
+- The CLI owns product-facing startup, migration, and state paths. Pi-Codex user state defaults to `~/.pi-codex/agent`; keep upstream Pi state separate and migrate only explicitly compatible preferences.
+- Shared argument-parser compatibility is not public product endorsement. New product-facing model/provider help and selectors must remain Codex-only and match `src/product/`.

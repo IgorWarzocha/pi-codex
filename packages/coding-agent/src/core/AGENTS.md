@@ -1,0 +1,3 @@
+- Core is shared runtime policy, not the place to scatter Pi-Codex catalog choices. Put shipped provider/model selection in `src/product/` and native Codex request/session behavior in `src/adapter/`.
+- Preserve the distinction between model-visible developer messages and invisible extension state: `custom_message` enters context; `custom` does not. Non-triggering developer updates must not accidentally start a turn.
+- Resource, trust, session-tree, and settings changes need compatibility-minded tests; do not use a broad fallback to mask an invalid or ambiguous state.

@@ -1,0 +1,4 @@
+- `models.generated.ts` is generated: change `scripts/generate-models.ts`, then regenerate. Treat catalog drift in the generated diff as reviewable output, not a manual cleanup target.
+- Before adding a provider, use the native `add-llm-provider` skill and follow its full test matrix. Register built-ins lazily; do not turn the registry into static provider imports.
+- Direct external dependencies stay exact-pinned. Read target Undici release notes before any Undici update.
+- Pi-Codex's supported CLI provider surface is selected in `packages/coding-agent/src/product/`; do not infer it from this generic transport package.

@@ -1,0 +1,2 @@
+- Examples may demonstrate retained generic SDK/extension APIs, but must label any provider, direct-tool, or prompt-rewrite example that is not a supported Pi-Codex product workflow.
+- Do not present examples as defaults. Keep their README links and compatibility notes aligned with the product docs.

@@ -1,0 +1,3 @@
+- Dependency and lockfile changes are reviewed code. Install with `--ignore-scripts`; regenerate coding-agent lock artifacts with the repository scripts and do not bypass their pre-commit guard without Igor's request.
+- Before a release, ask whether Igor ran `/cl` on current `main`. Build and smoke-test the local release outside the repository, including both Node and Bun interactive sessions and a real prompt.
+- Release lockstep packages once with `PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:patch` or `release:minor`. If tag CI publishing or announcement fails, repair/rerun CI; never rerun the release command for that version or publish locally.

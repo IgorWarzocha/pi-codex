@@ -1,0 +1,3 @@
+- This subtree wires Pi-Codex presentation, commands, and lifecycle integration. Request construction, cache policy, diagnostics, and compaction execution belong in native session/adapter code.
+- Commands that update agent context without work must use non-triggering developer messages. Commands that start work must respect idle/queued turn delivery.
+- Keep `/pi-codex-guide` aligned with the bundled guide and native product behavior; do not revive `pi-codex-conversion` as an extension.

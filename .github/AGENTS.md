@@ -1,0 +1,4 @@
+- Read `CONTRIBUTING.md` before issue or PR actions. Add every affected `pkg:*` label to issues.
+- Inspect PRs with `gh pr view`, `gh pr diff`, `gh api`, and fetched refs; never switch the shared worktree to a PR branch without Igor's explicit request.
+- Write external comments to a temporary file and post with `--body-file`. Keep them concise, technical, in Igor's tone, and end with the prompt-required AI disclaimer.
+- Commit messages closing issues must repeat `fixes #N` or `closes #N` for each issue.

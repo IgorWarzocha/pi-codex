@@ -1,0 +1,3 @@
+- Voice start/end and capability changes are model-visible non-triggering developer updates; they must never create an unsolicited agent turn.
+- Voice context delegation stays within Pi-Codex's supported Codex models and follows the current session's privacy/trust boundary.
+- Keep realtime transport, device setup, LAN control, and UI ownership separated by their named modules; do not fold them into a controller catch-all.

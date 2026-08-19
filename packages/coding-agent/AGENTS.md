@@ -1,0 +1,6 @@
+- The shipped product is Pi-Codex: OpenAI Codex subscription runtime; Luna/Terra/Sol profiles; Code and Notebook Mode. Generic core/SDK compatibility does not expand this product surface.
+- Keep product selection in `src/product/`, session-native Codex behavior in `src/adapter/`, and UI/command wiring in `src/extensions/pi-codex/`. Prefer a small core hook to lifecycle-hook rewrites when product behavior needs native support.
+- Code Mode owns the top-level `exec`/`wait` contract; Notebook adds `notebook`. Do not restore Normal Mode or stock direct model tools as product defaults.
+- Codex request identity is cache-sensitive. Preserve stable system prompts, ordered tools, model/settings, and session continuation unless the change deliberately invalidates cache.
+- For `test/suite/`, use `test/suite/harness.ts` with the faux provider; never real credentials or paid APIs. Put issue regressions in `test/suite/regressions/<issue>-<slug>.test.ts`.
+- Read `docs/AGENTS.md` for user docs, `examples/AGENTS.md` for examples, and nearest `src/**/AGENTS.md` before local runtime work.

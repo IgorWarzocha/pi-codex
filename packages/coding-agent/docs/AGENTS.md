@@ -1,0 +1,4 @@
+- Documentation describes the Pi-Codex product, not generic Pi compatibility internals. State removed/upstream behavior plainly instead of implying unsupported provider, Normal Mode, or direct-tool workflows work.
+- For a page whose behavior differs from upstream Pi, retain a concise `## Different from upstream Pi` section. Keep user explanations in Markdown; put modification hazards in AGENTS files.
+- New or renamed docs must update `docs.json` and confirm package `files`, `scripts/copy-codex-runtime-assets.mjs`, and `scripts/build-binaries.sh` still carry them in npm packages and standalone binaries.
+- `pi-codex-guide.md` is the migration entry point; keep its documentation map current.

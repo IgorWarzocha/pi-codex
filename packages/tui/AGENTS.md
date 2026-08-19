@@ -1,0 +1,2 @@
+- TUI width, focus order, overlays, keyboard dispatch, cursor placement, and theme invalidation are public behavioral contracts. Test narrow widths and interactive state changes, not only rendered happy paths.
+- This package uses `node --test`, not Vitest. Run a changed test directly from `packages/tui`.
