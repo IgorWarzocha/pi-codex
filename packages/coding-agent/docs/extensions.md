@@ -282,7 +282,7 @@ pi starts
   └─► resources_discover { reason: "startup" }
       │
       ▼
-user sends prompt ─────────────────────────────────────────┐
+user sends prompt or custom message starts a turn ─────────┐
   │                                                        │
   ├─► (extension commands checked first, bypass if found)  │
   ├─► input (can intercept, transform, or handle)          │
@@ -529,11 +529,12 @@ pi.on("session_shutdown", async (event, ctx) => {
 
 #### before_agent_start
 
-Fired after user submits prompt, before agent loop. Can inject a message and/or modify the system prompt.
+Fired after a user prompt or idle `pi.sendMessage(..., { triggerTurn: true })`, before the agent loop. Can inject a message and/or modify the system prompt.
 
 ```typescript
 pi.on("before_agent_start", async (event, ctx) => {
-  // event.prompt - user's prompt text
+  // event.source - "prompt" | "custom"
+  // event.prompt - expanded user prompt or custom trigger text
   // event.images - attached images (if any)
   // event.systemPrompt - current chained system prompt for this handler
   //   (includes changes from earlier before_agent_start handlers)

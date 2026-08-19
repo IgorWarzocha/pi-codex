@@ -42,6 +42,7 @@ import {
 	type TextContent,
 	type Usage,
 } from "@earendil-works/pi-ai";
+import { PI_CODEX_CONFIG_CHANGED_CHANNEL } from "../adapter/activation/config-events.ts";
 import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { appendNotebookTreeEpoch } from "../tools/code-mode/notebook-session.ts";
@@ -104,7 +105,7 @@ import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
-import type { SettingsManager } from "./settings-manager.ts";
+import type { PiCodexSettings, SettingsManager } from "./settings-manager.ts";
 import type { Skill } from "./skills.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
@@ -968,6 +969,16 @@ export class AgentSession {
 	async setExecutionMode(mode: CodexExecutionMode): Promise<void> {
 		this.settingsManager.setExecutionMode(mode);
 		await this._syncCodexExecutionMode(this.model);
+		this._emitPiCodexConfigChanged();
+	}
+
+	setPiCodexSettings(settings: PiCodexSettings): void {
+		this.settingsManager.setPiCodexSettings(settings);
+		this._emitPiCodexConfigChanged();
+	}
+
+	private _emitPiCodexConfigChanged(): void {
+		this._resourceLoader.getExtensions().runtime.events.emit(PI_CODEX_CONFIG_CHANGED_CHANNEL, undefined);
 	}
 
 	/** Whether the session is currently processing an agent run or post-run continuation. */
@@ -1297,6 +1308,41 @@ export class AgentSession {
 		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
 	}
 
+	private async _applyBeforeAgentStart(
+		messages: AgentMessage[],
+		prompt: string,
+		images: ImageContent[] | undefined,
+		source: "prompt" | "custom",
+	): Promise<void> {
+		const result = await this._extensionRunner.emitBeforeAgentStart(
+			prompt,
+			images,
+			this._baseSystemPrompt,
+			this._baseSystemPromptOptions,
+			source,
+		);
+		if (result?.messages) {
+			for (const message of result.messages) {
+				messages.push({
+					role: "custom",
+					customType: message.customType,
+					// Untyped extensions can pass null/missing content; normalize at ingestion.
+					content: message.content ?? [],
+					display: message.display,
+					details: message.details,
+					timestamp: Date.now(),
+				});
+			}
+		}
+		if (result?.systemPrompt !== undefined) {
+			this._systemPromptOverride = result.systemPrompt;
+			this.agent.state.systemPrompt = result.systemPrompt;
+		} else {
+			this._systemPromptOverride = undefined;
+			this.agent.state.systemPrompt = this._baseSystemPrompt;
+		}
+	}
+
 	// =========================================================================
 	// Prompting
 	// =========================================================================
@@ -1483,36 +1529,7 @@ export class AgentSession {
 			}
 			this._pendingNextTurnMessages = [];
 
-			// Emit before_agent_start extension event
-			const result = await this._extensionRunner.emitBeforeAgentStart(
-				expandedText,
-				currentImages,
-				this._baseSystemPrompt,
-				this._baseSystemPromptOptions,
-			);
-			// Add all custom messages from extensions
-			if (result?.messages) {
-				for (const msg of result.messages) {
-					messages.push({
-						role: "custom",
-						customType: msg.customType,
-						// Untyped extensions can pass null/missing content; normalize at ingestion.
-						content: msg.content ?? [],
-						display: msg.display,
-						details: msg.details,
-						timestamp: Date.now(),
-					});
-				}
-			}
-			// Apply extension-modified system prompt, or reset to base
-			if (result?.systemPrompt !== undefined) {
-				this._systemPromptOverride = result.systemPrompt;
-				this.agent.state.systemPrompt = result.systemPrompt;
-			} else {
-				// Ensure we're using the base prompt (in case previous turn had modifications)
-				this._systemPromptOverride = undefined;
-				this.agent.state.systemPrompt = this._baseSystemPrompt;
-			}
+			await this._applyBeforeAgentStart(messages, expandedText, currentImages, "prompt");
 		} catch (error) {
 			preflightResult?.(false);
 			throw error;
@@ -1713,7 +1730,11 @@ export class AgentSession {
 				this.agent.steer(appMessage);
 			}
 		} else if (options?.triggerTurn) {
-			await this._runAgentPrompt(appMessage);
+			await this._refreshSkills();
+			const messages: AgentMessage[] = [appMessage];
+			await this._applyBeforeAgentStart(messages, contentText(appMessage.content), undefined, "custom");
+			await this._codexSessionRuntime.prepareTurn();
+			await this._runAgentPrompt(messages);
 		} else {
 			this.agent.state.messages.push(appMessage);
 			this.sessionManager.appendCustomMessageEntry(

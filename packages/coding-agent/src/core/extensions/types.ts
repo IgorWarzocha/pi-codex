@@ -711,10 +711,12 @@ export interface AfterProviderResponseEvent {
 	headers: Record<string, string>;
 }
 
-/** Fired after user submits prompt but before agent loop. */
+/** Fired after a user prompt or custom turn trigger, before the agent loop. */
 export interface BeforeAgentStartEvent {
 	type: "before_agent_start";
-	/** The raw user prompt text (after expansion). */
+	/** What initiated this top-level agent run. */
+	source: "prompt" | "custom";
+	/** The triggering message text. User prompts have already been expanded. */
 	prompt: string;
 	/** Images attached to the user prompt, if any. */
 	images?: ImageContent[];

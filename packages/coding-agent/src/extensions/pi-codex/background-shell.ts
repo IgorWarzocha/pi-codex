@@ -1,4 +1,5 @@
 import { resolveNativePiCodexConfig } from "../../adapter/activation/config.ts";
+import { PI_CODEX_CONFIG_CHANGED_CHANNEL } from "../../adapter/activation/config-events.ts";
 import { getAgentDir } from "../../config.ts";
 import type { ExtensionAPI } from "../../core/extensions/types.ts";
 import { SettingsManager } from "../../core/settings-manager.ts";
@@ -39,6 +40,18 @@ export function registerPiCodexBackgroundShell(pi: ExtensionAPI): void {
 		if (!state.ctx || !enabled()) return;
 		renderBackgroundBashWidget(state.ctx, state, controls);
 	};
+	const refreshConfig = () => {
+		const ctx = state.ctx;
+		if (!ctx) return;
+		const settings = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
+		config = resolveNativePiCodexConfig({
+			settings: settings.getPiCodexSettings(),
+			executionMode: settings.getExecutionMode(),
+			notebook: settings.getNotebookSettings(),
+		});
+		if (!enabled()) ctx.ui.setWidget(BACKGROUND_BASH_WIDGET_ID, undefined);
+		else render();
+	};
 	const bindManager = (next: ExecSessionManager) => {
 		removeManagerListener?.();
 		manager = next;
@@ -57,26 +70,11 @@ export function registerPiCodexBackgroundShell(pi: ExtensionAPI): void {
 	pi.events.on(PI_CODEX_EXEC_SESSIONS_CHANNEL, (value) => {
 		if (isExecSessionManager(value)) bindManager(value);
 	});
+	pi.events.on(PI_CODEX_CONFIG_CHANGED_CHANNEL, refreshConfig);
 	registerBackgroundBashWidgetShortcuts(pi, state, controls, config.ui, enabled);
 	pi.on("session_start", (_event, ctx) => {
-		const settings = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
-		config = resolveNativePiCodexConfig({
-			settings: settings.getPiCodexSettings(),
-			executionMode: settings.getExecutionMode(),
-			notebook: settings.getNotebookSettings(),
-		});
 		state.ctx = ctx;
-		render();
-	});
-	pi.on("before_agent_start", (_event, ctx) => {
-		const settings = SettingsManager.create(ctx.cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
-		config = resolveNativePiCodexConfig({
-			settings: settings.getPiCodexSettings(),
-			executionMode: settings.getExecutionMode(),
-			notebook: settings.getNotebookSettings(),
-		});
-		if (!enabled()) ctx.ui.setWidget(BACKGROUND_BASH_WIDGET_ID, undefined);
-		else render();
+		refreshConfig();
 	});
 	pi.on("session_shutdown", (_event, ctx) => {
 		if (renderTimer) clearTimeout(renderTimer);

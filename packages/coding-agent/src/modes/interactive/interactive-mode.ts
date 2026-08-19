@@ -4561,7 +4561,7 @@ export class InteractiveMode {
 						void this.session.setExecutionMode(mode);
 					},
 					onPiCodexChange: (settings) => {
-						this.settingsManager.setPiCodexSettings(settings);
+						this.session.setPiCodexSettings(settings);
 					},
 					onTransportChange: (transport) => {
 						this.settingsManager.setTransport(transport);
