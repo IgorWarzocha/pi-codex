@@ -3,7 +3,7 @@ import { basename, dirname, join, normalize, relative } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { loadContextFileFromDir, PROJECT_CONTEXT_FILE_NAMES } from "../context-files.ts";
-import { contentRootForTarget, isInsideRoot, resolveContextPath } from "./paths.ts";
+import { isInsideRoot, resolveContextPath } from "./paths.ts";
 import {
 	isDiscoveryShellCommand,
 	isPathOutputShellCommand,
@@ -199,30 +199,11 @@ export class NestedContextManager {
 	}
 
 	private targetsForEvent(event: DiscoveryEvent): string[] {
-		const isRead = event.toolName === "read";
-		const isPathDiscoveryTool = ["grep", "find", "ls"].includes(event.toolName);
-		const workdir = ["workdir", "cwd", "working_directory"]
-			.map((key) => event.input[key])
-			.find((value): value is string => typeof value === "string");
+		if (event.toolName !== "exec_command") return [];
+		const workdir = typeof event.input["workdir"] === "string" ? event.input["workdir"] : undefined;
 		const eventCwd = workdir === undefined ? this.cwd : resolveContextPath(workdir, this.cwd);
-		const shellInput =
-			typeof event.input["command"] === "string"
-				? event.input["command"]
-				: typeof event.input["cmd"] === "string"
-					? event.input["cmd"]
-					: undefined;
-		const isShell = ["bash", "exec_command", "shell"].includes(event.toolName);
-		if (!isRead && !isShell && !isPathDiscoveryTool) return [];
-		const pathInput = typeof event.input["path"] === "string" ? event.input["path"] : undefined;
-		const isDiscoveryShell = isShell && shellInput !== undefined && isDiscoveryShellCommand(shellInput);
-		if (!isRead && !isPathDiscoveryTool && !isDiscoveryShell) return [];
-
-		if (isRead) return [pathInput ? resolveContextPath(pathInput, eventCwd) : eventCwd];
-		if (isPathDiscoveryTool) {
-			const base = pathInput ? resolveContextPath(pathInput, eventCwd) : eventCwd;
-			return [base, ...this.pathsFromToolText(event.content, base, event.toolName)];
-		}
-		if (!shellInput) return [];
+		const shellInput = typeof event.input["cmd"] === "string" ? event.input["cmd"] : undefined;
+		if (!shellInput || !isDiscoveryShellCommand(shellInput)) return [];
 		const base = shellOutputBase(shellInput, eventCwd);
 		const outputPaths = isPathOutputShellCommand(shellInput)
 			? this.pathsFromToolText(event.content, base, shellOutputToolName(shellInput))
@@ -235,15 +216,14 @@ export class NestedContextManager {
 		const startupPaths = new Set(this.startupContext.keys());
 		for (const target of targets) {
 			if (isProjectContextFile(target)) continue;
-			const searchRoot = contentRootForTarget(target);
-			if (!searchRoot) continue;
+			if (!isInsideRoot(this.cwd, target)) continue;
 			let probe = target;
 			try {
 				if (existsSync(target) && statSync(target).isDirectory()) probe = join(target, "__probe__");
 			} catch {
 				continue;
 			}
-			for (const file of findContextFiles(probe, searchRoot, startupPaths)) files.add(file);
+			for (const file of findContextFiles(probe, this.cwd, startupPaths)) files.add(file);
 		}
 		return [...files];
 	}

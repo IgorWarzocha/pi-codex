@@ -92,8 +92,8 @@ describe("NestedContextManager", () => {
 		writeFileSync(join(root, "packages", "app", "AGENTS.md"), "updated app instructions");
 
 		const refreshed = await context.transform({
-			toolName: "read",
-			input: { path: filePath },
+			toolName: "exec_command",
+			input: { cmd: `cat ${filePath}` },
 			content: [{ type: "text", text: "export const value = 1;" }],
 			details: {},
 			isError: false,
@@ -107,8 +107,8 @@ describe("NestedContextManager", () => {
 	it("does not repeat a context file the agent read directly", async () => {
 		const context = manager();
 		const direct = await context.transform({
-			toolName: "read",
-			input: { path: join(root, "packages", "AGENTS.md") },
+			toolName: "exec_command",
+			input: { cmd: `cat ${join(root, "packages", "AGENTS.md")}` },
 			content: [{ type: "text", text: "package instructions" }],
 			details: {},
 			isError: false,
@@ -116,14 +116,47 @@ describe("NestedContextManager", () => {
 		expect(lastText(direct)).toBe("package instructions");
 
 		const nested = await context.transform({
-			toolName: "read",
-			input: { path: filePath },
+			toolName: "exec_command",
+			input: { cmd: `cat ${filePath}` },
 			content: [{ type: "text", text: "export const value = 1;" }],
 			details: {},
 			isError: false,
 		});
 		expect(lastText(nested)).not.toContain('<agents_file path="packages/AGENTS.md">');
 		expect(lastText(nested)).toContain('<agents_file path="packages/app/AGENTS.md">');
+	});
+
+	it("ignores removed legacy file tools", async () => {
+		const context = manager();
+		for (const toolName of ["read", "grep", "find", "ls"]) {
+			const result = await context.transform({
+				toolName,
+				input: { path: filePath },
+				content: [{ type: "text", text: filePath }],
+				details: {},
+				isError: false,
+			});
+			expect(result).toBeUndefined();
+		}
+	});
+
+	it("does not load context above the session cwd", async () => {
+		const cwd = join(root, "packages", "app");
+		const context = new NestedContextManager({
+			cwd,
+			enabled: true,
+			startupFiles: [{ path: join(cwd, "AGENTS.md"), content: "app instructions" }],
+			messages: [],
+		});
+		const result = await context.transform({
+			toolName: "exec_command",
+			input: { cmd: `cat ${filePath}` },
+			content: [{ type: "text", text: "export const value = 1;" }],
+			details: {},
+			isError: false,
+		});
+
+		expect(result).toBeUndefined();
 	});
 
 	it("uses AGENTS.override.md and sees read-like tools executed inside Code Mode", async () => {
