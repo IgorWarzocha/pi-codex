@@ -4,12 +4,18 @@ type ToolNameNormalizer = (name: string) => string;
 
 const identityToolName: ToolNameNormalizer = (name) => name;
 
+interface SplitDeferredToolsOptions {
+	normalizeName?: ToolNameNormalizer;
+	includeDeveloperMessages?: boolean;
+}
+
 /** Split current tools into prefix and transcript-loaded definitions. */
 export function splitDeferredTools(
 	context: Context,
 	enabled: boolean,
-	normalizeName: ToolNameNormalizer = identityToolName,
+	options: SplitDeferredToolsOptions = {},
 ): { immediate: Tool[]; deferred: Map<string, Tool> } {
+	const normalizeName = options.normalizeName ?? identityToolName;
 	const uniqueTools = new Map<string, Tool>();
 	for (const tool of context.tools ?? []) uniqueTools.set(normalizeName(tool.name), tool);
 	if (!enabled) return { immediate: [...uniqueTools.values()], deferred: new Map() };
@@ -21,7 +27,10 @@ export function splitDeferredTools(
 			for (const block of message.content) {
 				if (block.type === "toolCall") usedNames.add(normalizeName(block.name));
 			}
-		} else if (message.role === "toolResult") {
+		} else if (
+			message.role === "toolResult" ||
+			(options.includeDeveloperMessages === true && message.role === "developer")
+		) {
 			for (const name of message.addedToolNames ?? []) {
 				const normalizedName = normalizeName(name);
 				if (!usedNames.has(normalizedName)) deferredNames.add(normalizedName);

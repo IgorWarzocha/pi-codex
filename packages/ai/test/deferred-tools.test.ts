@@ -2,7 +2,16 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { convertMessages } from "../src/api/openai-completions.ts";
 import { getModel, streamSimple } from "../src/compat.ts";
-import type { Api, AssistantMessage, Context, Model, Tool, ToolResultMessage, UserMessage } from "../src/types.ts";
+import type {
+	Api,
+	AssistantMessage,
+	Context,
+	DeveloperMessage,
+	Model,
+	Tool,
+	ToolResultMessage,
+	UserMessage,
+} from "../src/types.ts";
 import { estimateContextTokens } from "../src/utils/estimate.ts";
 
 interface AnthropicToolPayload {
@@ -120,6 +129,15 @@ function makeToolResult(addedToolNames: string[]): ToolResultMessage {
 		content: [{ type: "text", text: "done" }],
 		addedToolNames,
 		isError: false,
+		timestamp: 3,
+	};
+}
+
+function makeDeveloperToolAvailability(addedToolNames: string[]): DeveloperMessage {
+	return {
+		role: "developer",
+		content: "New tools are available.",
+		addedToolNames,
 		timestamp: 3,
 	};
 }
@@ -415,6 +433,20 @@ describe("deferred tools", () => {
 		expect(additionalTools?.tools.every((tool) => tool.defer_loading === undefined)).toBe(true);
 		expect(payload.input?.some((item) => item.type === "tool_search_call")).toBe(false);
 		expect(payload.input?.some((item) => item.type === "tool_search_output")).toBe(false);
+	});
+
+	it("loads an OpenAI Responses tool from a developer capability update", async () => {
+		const context: Context = {
+			messages: [makeUserMessage(1), makeDeveloperToolAvailability(["late_tool"]), makeUserMessage(4)],
+			tools: [makeTool("base_tool"), makeTool("late_tool")],
+		};
+		const payload = await capturePayload<OpenAIPayload>(getModel("openai", "gpt-5.4"), context);
+		const additionalTools = payload.input?.find(
+			(item): item is OpenAIAdditionalTools => item.type === "additional_tools",
+		);
+
+		expect(openAIToolNames(payload)).toEqual(["base_tool"]);
+		expect(additionalTools?.tools).toMatchObject([{ type: "function", name: "late_tool" }]);
 	});
 
 	it("preserves an additional_tools marker after the loaded tool is used", async () => {

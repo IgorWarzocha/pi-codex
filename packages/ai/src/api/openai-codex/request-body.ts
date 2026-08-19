@@ -41,7 +41,9 @@ export function buildRequestBody<TApi extends Api>(
 		supportsOpenAIGrammarTools && !CODEX_TOOL_CALL_PROVIDERS.has(model.provider)
 			? new Set([...CODEX_TOOL_CALL_PROVIDERS, model.provider])
 			: CODEX_TOOL_CALL_PROVIDERS;
-	const toolPlacement = splitDeferredTools(context, deferredToolsMode !== undefined);
+	const toolPlacement = splitDeferredTools(context, deferredToolsMode !== undefined, {
+		includeDeveloperMessages: true,
+	});
 	const messages = convertResponsesMessages(model, context, allowedToolCallProviders, {
 		includeSystemPrompt: false,
 		grammarToolInputProperties,

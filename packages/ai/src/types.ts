@@ -426,6 +426,11 @@ export interface UserMessage {
 export interface DeveloperMessage {
 	role: "developer";
 	content: string | (TextContent | ImageContent)[];
+	/**
+	 * Names from `Context.tools` that became available at this point in the session.
+	 * Responses providers serialize these as a developer-scoped tool availability item.
+	 */
+	addedToolNames?: string[];
 	timestamp: number; // Unix timestamp in milliseconds
 }
 

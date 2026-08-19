@@ -10,6 +10,7 @@
 
 - Added provider-neutral `toolChoice` support to simple stream requests.
 - Added canonical developer messages for preserving application-authored session instructions separately from user input.
+- Added developer-scoped tool availability markers for loading late Responses tools without changing the cached prefix.
 
 ### Changed
 

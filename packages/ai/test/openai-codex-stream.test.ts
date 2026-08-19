@@ -233,6 +233,32 @@ describe("openai-codex provider", () => {
 		});
 	});
 
+	it("loads tools from developer capability updates without changing the prefix tool list", () => {
+		const body = buildRequestBody(model, {
+			...userContext(),
+			messages: [
+				{ role: "user", content: "Start", timestamp: 1 },
+				{
+					role: "developer",
+					content: "A late tool is now available.",
+					addedToolNames: ["late_tool"],
+					timestamp: 2,
+				},
+			],
+			tools: [
+				{ name: "base_tool", description: "Base", parameters: Type.Object({}) },
+				{ name: "late_tool", description: "Late", parameters: Type.Object({}) },
+			],
+		});
+
+		expect((body.tools as Array<{ name: string }> | undefined)?.map((tool) => tool.name)).toEqual(["base_tool"]);
+		expect(body.input).toContainEqual({
+			type: "additional_tools",
+			role: "developer",
+			tools: [expect.objectContaining({ type: "function", name: "late_tool" })],
+		});
+	});
+
 	it("keeps Fast Mode routing identical across transports", () => {
 		const routing = resolveCodexRequestRouting({
 			model: model.id,

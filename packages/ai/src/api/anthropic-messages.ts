@@ -994,7 +994,7 @@ function buildParams(
 	const toolPlacement = splitDeferredTools(
 		{ ...context, messages: transformedMessages },
 		compat.supportsToolReferences,
-		normalizeToolName,
+		{ normalizeName: normalizeToolName },
 	);
 	let immediateTools = toolPlacement.immediate;
 	let deferredTools = [...toolPlacement.deferred.values()];
