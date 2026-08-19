@@ -19,6 +19,7 @@
 
 - Pi-Codex now builds its compact system prompt directly from runtime guidance, project instructions, skills, shell context, and the working directory instead of constructing and rewriting Pi's stock prompt before each turn.
 - The native fork now ignores `@howaboua/pi-codex-conversion` wherever it appears in extension configuration, preventing the superseded extension from loading alongside its built-in replacement.
+- Codex cache prewarming, diagnostics, and Responses Compaction V2 now run as session-native services with the final prompt and ordered agent tools, rather than reconstructing provider state through extension hooks and global symbol bridges.
 
 ### Removed
 

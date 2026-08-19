@@ -1,16 +1,11 @@
 import type { CacheDiagnosticsMode } from "../adapter/activation/config.ts";
-import type { ExtensionContext } from "../core/extensions/types.ts";
+import type { CodexDiagnosticsContext } from "./context.ts";
+import { type CodexDiagnosticsLog, createCodexDiagnosticsLog } from "./logger.ts";
 import type { CodexDiagnosticsEvent, CodexDiagnosticsFailure, CodexDiagnosticsLane } from "./types.ts";
 
 const CACHE_STATUS_KEY = "codex-cache";
 const CACHE_STATUS_TEXT = "Codex Cache";
 export const CACHE_MISS_HOLD_MS = 3_000;
-
-interface DiagnosticsLog {
-	path: string;
-	record(event: CodexDiagnosticsEvent): void;
-	close(): Promise<void>;
-}
 
 export interface CodexDiagnosticsRuntime {
 	record(event: CodexDiagnosticsEvent): void;
@@ -35,13 +30,13 @@ function failureLabel(failure: CodexDiagnosticsFailure): string {
 
 export async function createCodexDiagnosticsRuntime(options: {
 	mode: Exclude<CacheDiagnosticsMode, "off">;
-	ctx: ExtensionContext;
+	context: CodexDiagnosticsContext;
 	agentDir: string;
 	announceLog?: boolean | undefined;
 	missHoldMs?: number | undefined;
 }): Promise<CodexDiagnosticsRuntime> {
-	const { ctx } = options;
-	let log: DiagnosticsLog | undefined;
+	const { context } = options;
+	let log: CodexDiagnosticsLog | undefined;
 	let logActive = false;
 	let logFailureReported = false;
 	let holdTimer: ReturnType<typeof setTimeout> | undefined;
@@ -50,11 +45,11 @@ export async function createCodexDiagnosticsRuntime(options: {
 	const latestRequests = new Map<CodexDiagnosticsLane, Extract<CodexDiagnosticsEvent, { type: "request" }>>();
 
 	const themedStatus = (suffix: string, warning = false) => {
-		const title = ctx.ui.theme.fg("accent", CACHE_STATUS_TEXT);
-		const detail = ctx.ui.theme.fg(warning ? "warning" : "dim", ` • ${suffix}`);
+		const title = context.ui.theme.fg("accent", CACHE_STATUS_TEXT);
+		const detail = context.ui.theme.fg(warning ? "warning" : "dim", ` • ${suffix}`);
 		return `${title}${detail}`;
 	};
-	const show = (status: string) => ctx.ui.setStatus(CACHE_STATUS_KEY, status);
+	const show = (status: string) => context.ui.setStatus(CACHE_STATUS_KEY, status);
 	const showCurrent = (suffix: string) => {
 		const status = themedStatus(`${suffix}${logActive ? " • log" : ""}`);
 		if (holdingMiss) latestAfterMiss = status;
@@ -77,7 +72,7 @@ export async function createCodexDiagnosticsRuntime(options: {
 		logActive = false;
 		if (logFailureReported) return;
 		logFailureReported = true;
-		ctx.ui.notify(
+		context.ui.notify(
 			`Codex cache logging stopped: ${error instanceof Error ? error.message : String(error)}`,
 			"warning",
 		);
@@ -85,19 +80,18 @@ export async function createCodexDiagnosticsRuntime(options: {
 
 	if (options.mode === "status-and-log") {
 		try {
-			const logger = await import("./logger.ts");
-			log = await logger.createCodexDiagnosticsLog({
+			log = await createCodexDiagnosticsLog({
 				agentDir: options.agentDir,
-				sessionId: ctx.sessionManager.getSessionId(),
-				sessionFile: ctx.sessionManager.getSessionFile(),
-				sessionName: ctx.sessionManager.getSessionName(),
-				cwd: ctx.cwd,
-				modelProvider: ctx.model?.provider,
-				modelId: ctx.model?.id,
+				sessionId: context.sessionManager.getSessionId(),
+				sessionFile: context.sessionManager.getSessionFile(),
+				sessionName: context.sessionManager.getSessionName(),
+				cwd: context.cwd,
+				modelProvider: context.model?.provider,
+				modelId: context.model?.id,
 				onError: reportLogFailure,
 			});
 			logActive = true;
-			if (options.announceLog) ctx.ui.notify(`Codex cache log: ${log.path}`, "info");
+			if (options.announceLog) context.ui.notify(`Codex cache log: ${log.path}`, "info");
 		} catch (error) {
 			reportLogFailure(error);
 		}
@@ -147,7 +141,7 @@ export async function createCodexDiagnosticsRuntime(options: {
 			if (holdTimer) clearTimeout(holdTimer);
 			const failures: unknown[] = [];
 			try {
-				ctx.ui.setStatus(CACHE_STATUS_KEY, undefined);
+				context.ui.setStatus(CACHE_STATUS_KEY, undefined);
 			} catch (error) {
 				failures.push(error);
 			}

@@ -1,5 +1,6 @@
 import type { CacheDiagnosticsMode } from "../adapter/activation/config.ts";
-import type { ExtensionContext } from "../core/extensions/types.ts";
+import type { CodexDiagnosticsContext } from "./context.ts";
+import { createCodexDiagnosticsRuntime } from "./runtime.ts";
 import type { CodexDiagnosticsSink } from "./types.ts";
 
 interface ActiveCodexDiagnostics {
@@ -15,7 +16,7 @@ export interface LazyCodexDiagnostics {
 	configure(options: {
 		mode: CacheDiagnosticsMode;
 		active: boolean;
-		ctx: ExtensionContext;
+		context: CodexDiagnosticsContext;
 		agentDir: string;
 		announceLog?: boolean | undefined;
 	}): Promise<void>;
@@ -43,12 +44,12 @@ export function createLazyCodexDiagnostics(): LazyCodexDiagnostics {
 			.catch(() => undefined);
 		return current;
 	};
-	const stopForReconfigure = async (ctx: ExtensionContext) => {
+	const stopForReconfigure = async (context: CodexDiagnosticsContext) => {
 		try {
 			await stopActive();
 		} catch (error) {
 			try {
-				ctx.ui.notify(
+				context.ui.notify(
 					`Could not close the previous Codex cache log: ${error instanceof Error ? error.message : String(error)}`,
 					"warning",
 				);
@@ -60,10 +61,10 @@ export function createLazyCodexDiagnostics(): LazyCodexDiagnostics {
 
 	return {
 		async configure(options) {
-			const model = options.ctx.model;
+			const model = options.context.model;
 			const key = JSON.stringify([
 				options.mode,
-				options.ctx.sessionManager.getSessionId(),
+				options.context.sessionManager.getSessionId(),
 				model?.provider,
 				model?.id,
 				model?.api,
@@ -73,14 +74,12 @@ export function createLazyCodexDiagnostics(): LazyCodexDiagnostics {
 			const currentGeneration = ++generation;
 			const mode = options.mode;
 			if (mode === "off" || !options.active) {
-				await stopForReconfigure(options.ctx);
+				await stopForReconfigure(options.context);
 				return;
 			}
-			const module = await import("./runtime.ts");
+			await stopForReconfigure(options.context);
 			if (generation !== currentGeneration) return;
-			await stopForReconfigure(options.ctx);
-			if (generation !== currentGeneration) return;
-			const next = await module.createCodexDiagnosticsRuntime({ ...options, mode });
+			const next = await createCodexDiagnosticsRuntime({ ...options, mode });
 			if (generation !== currentGeneration) {
 				await next.shutdown();
 				return;
@@ -93,7 +92,7 @@ export function createLazyCodexDiagnostics(): LazyCodexDiagnostics {
 				} catch (error) {
 					sinkFailed = true;
 					try {
-						options.ctx.ui.notify(
+						options.context.ui.notify(
 							`Codex cache diagnostics stopped: ${error instanceof Error ? error.message : String(error)}`,
 							"warning",
 						);

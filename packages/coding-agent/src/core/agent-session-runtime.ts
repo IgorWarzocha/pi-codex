@@ -173,6 +173,7 @@ export class AgentSessionRuntime {
 			reason,
 			targetSessionFile,
 		});
+		await this.session.shutdownCodexRuntime();
 		this.beforeSessionInvalidate?.();
 		this.session.dispose();
 	}
@@ -400,6 +401,7 @@ export class AgentSessionRuntime {
 			type: "session_shutdown",
 			reason: "quit",
 		});
+		await this.session.shutdownCodexRuntime();
 		this.beforeSessionInvalidate?.();
 		this.session.dispose();
 	}

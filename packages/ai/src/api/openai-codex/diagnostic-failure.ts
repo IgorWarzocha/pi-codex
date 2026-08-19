@@ -56,17 +56,10 @@ export function codexDiagnosticsFailure(error: unknown): CodexDiagnosticsFailure
 }
 
 export function noThrowCodexDiagnosticsSink(sink: CodexDiagnosticsSink | undefined): CodexDiagnosticsSink | undefined {
-	const registryKey = Symbol.for("@earendil-works/pi-ai/openai-codex-diagnostics");
-	const registry = (globalThis as typeof globalThis & { [key: symbol]: unknown })[registryKey];
-	const globalSink =
-		registry && typeof registry === "object" && "sink" in registry
-			? (registry as { sink?: CodexDiagnosticsSink | undefined }).sink
-			: undefined;
-	const effectiveSink = sink ?? globalSink;
-	if (!effectiveSink) return undefined;
+	if (!sink) return undefined;
 	return (event) => {
 		try {
-			effectiveSink(event);
+			sink(event);
 		} catch {
 			// Optional diagnostics must never change provider execution.
 		}

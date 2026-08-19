@@ -13,6 +13,7 @@
 ### Changed
 
 - Replaced the built-in OpenAI Codex provider with the native pi-codex implementation, including proxy-aware Undici WebSockets, fresh connection recovery, sticky SSE fallback, cached continuation, Responses Lite image processing, prewarming, turn-state replay, native compaction continuity, cache diagnostics, bounded overload recovery, native OAuth scopes, and Daybreak models.
+- Exposed Codex prewarming, diagnostics, and canonical compaction continuity through the native provider module instead of process-global extension registries.
 
 ## [0.84.2] - 2026-08-14
 

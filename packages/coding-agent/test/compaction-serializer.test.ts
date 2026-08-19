@@ -5,10 +5,10 @@ import { DEFAULT_CODEX_CONVERSION_CONFIG } from "../src/adapter/activation/confi
 import {
 	buildNativeCompactionInput,
 	injectPendingNativeWindowIntoPiCompactionRequest,
+	type NativeCompactionContext,
 	type NativeCompactionState,
 } from "../src/adapter/compaction/compaction.ts";
 import { serializeActiveSessionToResponsesInput } from "../src/adapter/compaction/serializer.ts";
-import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { REALTIME_DELEGATION_MESSAGE_TYPE, REALTIME_VOICE_MESSAGE_TYPE } from "../src/voice/message-types.ts";
 
 const model = {
@@ -131,7 +131,7 @@ test("injects pending native compacted window into Pi compaction summarization p
 		model,
 		sessionManager: { getSessionId: () => "session-1" },
 		modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: true as const, apiKey: "key" }) },
-	} as unknown as ExtensionContext;
+	} as unknown as NativeCompactionContext;
 	const state: NativeCompactionState = {
 		executionMode: DEFAULT_CODEX_CONVERSION_CONFIG.executionMode,
 		config: {

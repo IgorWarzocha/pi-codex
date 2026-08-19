@@ -51,6 +51,7 @@ import { sleep } from "../utils/sleep.ts";
 import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
+import { CodexSessionRuntime } from "./codex-session-runtime.ts";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
@@ -223,6 +224,8 @@ export interface AgentSessionConfig {
 	baseToolsOverride?: Record<string, AgentTool>;
 	/** Mutable ref used by Agent to access the current ExtensionRunner */
 	extensionRunnerRef?: { current?: ExtensionRunner };
+	/** Mutable ref used by the provider stream to access this session's Codex runtime. */
+	codexSessionRuntimeRef?: { current?: CodexSessionRuntime };
 	/** Session start event metadata emitted when extensions bind to this runtime. */
 	sessionStartEvent?: SessionStartEvent;
 }
@@ -371,6 +374,7 @@ export class AgentSession {
 
 	private _modelRuntime: ModelRuntime;
 	private readonly _codexToolRuntime: CodexToolRuntime;
+	private readonly _codexSessionRuntime: CodexSessionRuntime;
 	private _codexExecutionMode: CodexExecutionMode;
 
 	// Tool registry for extension getTools/setTools
@@ -411,6 +415,18 @@ export class AgentSession {
 		);
 		this._codexToolRuntime.activateExecutionMode(this._codexExecutionMode);
 		this._modelRuntime = config.modelRuntime;
+		this._codexSessionRuntime = new CodexSessionRuntime({
+			agent: this.agent,
+			modelRuntime: config.modelRuntime,
+			settingsManager: config.settingsManager,
+			sessionManager: config.sessionManager,
+			cwd: config.cwd,
+			agentDir: config.agentDir ?? getAgentDir(),
+			getExecutionMode: () => this._codexExecutionMode,
+			getUi: () => this._extensionUIContext,
+			isIdle: () => this.isIdle,
+		});
+		if (config.codexSessionRuntimeRef) config.codexSessionRuntimeRef.current = this._codexSessionRuntime;
 		this._extensionRunnerRef = config.extensionRunnerRef;
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
@@ -591,6 +607,7 @@ export class AgentSession {
 		this._isAgentRunActive = false;
 		try {
 			await this._extensionRunner.emit({ type: "agent_settled" });
+			await this._codexSessionRuntime.agentSettled();
 			this._emit({ type: "agent_settled" });
 		} finally {
 			this._resolveIdleWaitIfIdle();
@@ -852,6 +869,7 @@ export class AgentSession {
 		this._disconnectFromAgent();
 		this._eventListeners = [];
 		void this._codexToolRuntime.shutdown();
+		void this._codexSessionRuntime.shutdown();
 		cleanupSessionResources(this.sessionId);
 	}
 
@@ -1084,6 +1102,7 @@ export class AgentSession {
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		this._isAgentRunActive = true;
+		this._codexSessionRuntime.agentStarted();
 		try {
 			const requestedMode = this._codexToolRuntime.resolveExecutionMode(
 				this.model,
@@ -1300,6 +1319,7 @@ export class AgentSession {
 			return;
 		}
 
+		await this._codexSessionRuntime.prepareTurn();
 		preflightResult?.(true);
 		await this._runAgentPrompt(messages);
 	}
@@ -1603,6 +1623,7 @@ export class AgentSession {
 	): Promise<void> {
 		if (modelsAreEqual(previousModel, nextModel)) return;
 		await this._syncCodexExecutionMode(nextModel);
+		await this._codexSessionRuntime.modelChanged();
 		await this._extensionRunner.emit({
 			type: "model_select",
 			model: nextModel,
@@ -1872,9 +1893,9 @@ export class AgentSession {
 	 * This is the manual entry point used by `/compact`, RPC, and extensions. It is
 	 * separate from automatic threshold/overflow compaction, which enters through
 	 * `_checkCompaction()` and `_runAutoCompaction()`. After preparation and the
-	 * `session_before_compact` hook, both paths call the lower-level `compact()`
-	 * function imported from `./compaction/index.ts`, unless the hook cancels or
-	 * supplies a custom result.
+	 * native Codex compaction strategy, and `session_before_compact` hook, both
+	 * paths call the lower-level `compact()` function imported from
+	 * `./compaction/index.ts` unless a strategy supplies the result.
 	 *
 	 * Aborts the current agent operation first. Manual compaction never retries or
 	 * continues the interrupted agent turn.
@@ -1907,10 +1928,19 @@ export class AgentSession {
 				throw new Error("Nothing to compact (session too small)");
 			}
 
-			let extensionCompaction: CompactionResult | undefined;
+			let selectedCompaction: CompactionResult | undefined;
 			await this._checkpointNotebookBeforeCompaction();
+			const nativeResult = await this._codexSessionRuntime.compact({
+				preparation,
+				customInstructions,
+				reason: "manual",
+				willRetry: false,
+				signal: this._compactionAbortController.signal,
+			});
+			if (nativeResult && "cancel" in nativeResult) throw new Error("Compaction cancelled");
+			selectedCompaction = nativeResult && "compaction" in nativeResult ? nativeResult.compaction : undefined;
 
-			if (this._extensionRunner.hasHandlers("session_before_compact")) {
+			if (!selectedCompaction && this._extensionRunner.hasHandlers("session_before_compact")) {
 				const result = (await this._extensionRunner.emit({
 					type: "session_before_compact",
 					preparation,
@@ -1926,7 +1956,7 @@ export class AgentSession {
 				}
 
 				if (result?.compaction) {
-					extensionCompaction = result.compaction;
+					selectedCompaction = result.compaction;
 					fromExtension = true;
 				}
 			}
@@ -1937,13 +1967,13 @@ export class AgentSession {
 			let usage: Usage | undefined;
 			let details: unknown;
 
-			if (extensionCompaction) {
-				// Extension provided compaction content
-				summary = extensionCompaction.summary;
-				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
-				tokensBefore = extensionCompaction.tokensBefore;
-				usage = extensionCompaction.usage;
-				details = extensionCompaction.details;
+			if (selectedCompaction) {
+				// Native Codex or an extension provided the compaction content.
+				summary = selectedCompaction.summary;
+				firstKeptEntryId = selectedCompaction.firstKeptEntryId;
+				tokensBefore = selectedCompaction.tokensBefore;
+				usage = selectedCompaction.usage;
+				details = selectedCompaction.details;
 			} else {
 				// Shared default summary generator, also used by automatic compaction.
 				const result = await this._runDefaultCompaction(
@@ -1987,6 +2017,7 @@ export class AgentSession {
 					willRetry: false,
 				});
 			}
+			this._codexSessionRuntime.afterCompaction();
 
 			const compactionResult: CompactionResult = {
 				summary,
@@ -2061,9 +2092,9 @@ export class AgentSession {
 	 *    configured threshold; compact without retrying the completed response.
 	 *
 	 * Each case calls `_runAutoCompaction()`. After preparation and the
-	 * `session_before_compact` hook, that method calls the lower-level `compact()`
-	 * function imported from `./compaction/index.ts`, unless the hook cancels or
-	 * supplies a custom result.
+	 * native Codex compaction strategy and `session_before_compact` hook, that
+	 * method calls the lower-level `compact()` function imported from
+	 * `./compaction/index.ts` unless a strategy supplies the result.
 	 *
 	 * @param assistantMessage The assistant message to check
 	 * @param skipAbortedCheck If false, include aborted messages (for pre-prompt check). Default: true
@@ -2175,8 +2206,8 @@ export class AgentSession {
 	/**
 	 * Execute threshold or overflow compaction. Manual compaction uses
 	 * `AgentSession.compact()` instead. Both paths call the lower-level `compact()`
-	 * function imported from `./compaction/index.ts` after preparation and extension
-	 * interception.
+	 * function imported from `./compaction/index.ts` after preparation and native
+	 * or extension strategy interception.
 	 *
 	 * @param reason Automatic trigger selected by `_checkCompaction()`
 	 * @param willRetry Whether to continue the interrupted turn after overflow compaction
@@ -2205,10 +2236,33 @@ export class AgentSession {
 			this._autoCompactionAbortController = new AbortController();
 			started = true;
 
-			let extensionCompaction: CompactionResult | undefined;
+			let selectedCompaction: CompactionResult | undefined;
 			await this._checkpointNotebookBeforeCompaction();
+			const nativeResult = await this._codexSessionRuntime.compact({
+				preparation,
+				reason,
+				willRetry,
+				signal: this._autoCompactionAbortController.signal,
+			});
+			if (nativeResult && "cancel" in nativeResult) {
+				this._emit({
+					type: "compaction_end",
+					reason,
+					result: undefined,
+					aborted: true,
+					willRetry: false,
+				});
+				await this._emitSessionCompactFailed({
+					reason,
+					aborted: true,
+					willRetry: false,
+					fromExtension: false,
+				});
+				return false;
+			}
+			selectedCompaction = nativeResult && "compaction" in nativeResult ? nativeResult.compaction : undefined;
 
-			if (this._extensionRunner.hasHandlers("session_before_compact")) {
+			if (!selectedCompaction && this._extensionRunner.hasHandlers("session_before_compact")) {
 				const extensionResult = (await this._extensionRunner.emit({
 					type: "session_before_compact",
 					preparation,
@@ -2237,7 +2291,7 @@ export class AgentSession {
 				}
 
 				if (extensionResult?.compaction) {
-					extensionCompaction = extensionResult.compaction;
+					selectedCompaction = extensionResult.compaction;
 					fromExtension = true;
 				}
 			}
@@ -2248,13 +2302,13 @@ export class AgentSession {
 			let usage: Usage | undefined;
 			let details: unknown;
 
-			if (extensionCompaction) {
-				// Extension provided compaction content
-				summary = extensionCompaction.summary;
-				firstKeptEntryId = extensionCompaction.firstKeptEntryId;
-				tokensBefore = extensionCompaction.tokensBefore;
-				usage = extensionCompaction.usage;
-				details = extensionCompaction.details;
+			if (selectedCompaction) {
+				// Native Codex or an extension provided the compaction content.
+				summary = selectedCompaction.summary;
+				firstKeptEntryId = selectedCompaction.firstKeptEntryId;
+				tokensBefore = selectedCompaction.tokensBefore;
+				usage = selectedCompaction.usage;
+				details = selectedCompaction.details;
 			} else {
 				// Shared default summary generator, also used by manual compaction.
 				const compactResult = await this._runDefaultCompaction(
@@ -2311,6 +2365,7 @@ export class AgentSession {
 					willRetry,
 				});
 			}
+			this._codexSessionRuntime.afterCompaction();
 
 			const result: CompactionResult = {
 				summary,
@@ -2401,6 +2456,7 @@ export class AgentSession {
 		}
 
 		this._applyExtensionBindings(this._extensionRunner);
+		await this._codexSessionRuntime.modelChanged();
 		await this._extensionRunner.emit(this._sessionStartEvent);
 		await this.extendResourcesFromExtensions(this._sessionStartEvent.reason === "reload" ? "reload" : "startup");
 	}
@@ -2781,6 +2837,7 @@ export class AgentSession {
 			flagValues: previousFlagValues,
 			includeAllExtensionTools: true,
 		});
+		await this._codexSessionRuntime.modelChanged();
 
 		const hasBindings =
 			this._extensionUIContext ||
@@ -3514,5 +3571,9 @@ export class AgentSession {
 	 */
 	get extensionRunner(): ExtensionRunner {
 		return this._extensionRunner;
+	}
+
+	async shutdownCodexRuntime(): Promise<void> {
+		await this._codexSessionRuntime.shutdown();
 	}
 }

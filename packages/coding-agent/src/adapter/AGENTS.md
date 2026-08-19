@@ -1,0 +1,3 @@
+- Provider-affecting Codex behavior is session-native: route lifecycle through `core/codex-session-runtime.ts` and provider primitives through `@earendil-works/pi-ai/providers/openai-codex`.
+- Keep `extensions/pi-codex/` presentational. Do not restore request, cache, diagnostics, or compaction execution through extension events or process-global symbol registries.
+- Cache identity depends on the final system prompt, ordered `Agent.state.tools`, session ID, model, endpoint, and account. Native compaction checkpoints remain bound to that identity.

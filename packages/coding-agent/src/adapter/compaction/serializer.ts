@@ -99,11 +99,6 @@ export type NativeCompactionRequestBody = {
 	reasoning?: unknown | undefined;
 };
 
-export type NativeCompactionRequestOptions = Pick<
-	NativeCompactionRequestBody,
-	"parallel_tool_calls" | "prompt_cache_key" | "service_tier" | "text" | "tools" | "reasoning"
->;
-
 export type SerializeResponsesMessagesOptions = {
 	instructions?: string | undefined;
 	includeInstructionsInInput?: boolean | undefined;

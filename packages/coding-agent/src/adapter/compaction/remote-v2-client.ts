@@ -1,19 +1,20 @@
 import type { Api, AssistantMessage, Context, Model, SimpleStreamOptions, Transport } from "@earendil-works/pi-ai";
-import type { ModelRegistry } from "../../core/model-registry.ts";
 import {
+	type CodexDiagnosticsSink,
 	canonicalCompactionPromptInput,
 	canonicalCompactionRequestBody,
 	extractAccountId,
 	type ResponsesBody,
 	resolveCodexWebSocketUrl,
-	sleep,
 	withRemoteCompactionV2Feature,
-} from "../../providers/openai-codex/compaction-bridge.ts";
+} from "@earendil-works/pi-ai/providers/openai-codex";
+import type { ModelRegistry } from "../../core/model-registry.ts";
+import { sleep } from "../../utils/sleep.ts";
 import type { NativeCompactionRuntime } from "./compaction-runtime.ts";
 import type { CodexCompactionDiagnostic } from "./diagnostics.ts";
 import { canonicalCompactionOutput, normalizeRemoteCompactionV2PromptInput } from "./remote-v2-history.ts";
 import { resolveNativeCompactionRequestBudget, shrinkNativeCompactionRequestForEndpoint } from "./request-shrink.ts";
-import type { NativeCompactionRequestOptions, ResponsesInputItem } from "./serializer.ts";
+import type { ResponsesInputItem } from "./serializer.ts";
 
 const MAX_STREAM_RETRIES = 2;
 type V2Stream = (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AsyncIterable<unknown>;
@@ -22,6 +23,7 @@ type OpenAICodexStreamOptions = SimpleStreamOptions & {
 	textVerbosity?: string | undefined;
 	canonicalCompaction?: boolean | undefined;
 	compactionDiagnostics?: CodexCompactionDiagnostic | undefined;
+	diagnostics?: CodexDiagnosticsSink | undefined;
 	onOutputItemDone?: ((item: unknown) => void) | undefined;
 };
 
@@ -53,7 +55,7 @@ export type ExecuteRemoteCompactionV2Options = {
 	modelRegistry: ModelRegistry;
 	context: Context;
 	promptInput: readonly ResponsesInputItem[];
-	requestOptions: NativeCompactionRequestOptions;
+	requestOptions: NativeCompactionRequestControls;
 	tokensBefore: number;
 	sessionId: string;
 	signal?: AbortSignal | undefined;
@@ -61,7 +63,14 @@ export type ExecuteRemoteCompactionV2Options = {
 	retryDelayMs?: number | undefined;
 	promptInputSource?: "canonical" | "reconstructed" | undefined;
 	compactionDiagnostic?: CodexCompactionDiagnostic | undefined;
+	diagnostics?: CodexDiagnosticsSink | undefined;
 };
+
+export interface NativeCompactionRequestControls {
+	reasoning?: SimpleStreamOptions["reasoning"];
+	serviceTier?: string | undefined;
+	textVerbosity?: string | undefined;
+}
 
 function resolveStream(options: ExecuteRemoteCompactionV2Options): V2Stream | undefined {
 	if (options.runtime.codexTransport) {
@@ -130,11 +139,7 @@ function canonicalSessionIdentity(
 	};
 }
 
-function withCurrentCompactionControls(
-	canonicalBody: ResponsesBody,
-	currentBody: ResponsesBody,
-	requestOptions: NativeCompactionRequestOptions,
-): ResponsesBody {
+function withCurrentCompactionControls(canonicalBody: ResponsesBody, currentBody: ResponsesBody): ResponsesBody {
 	const {
 		client_metadata: _canonicalMetadata,
 		reasoning: canonicalReasoning,
@@ -143,7 +148,7 @@ function withCurrentCompactionControls(
 		text: _canonicalText,
 		...historyBody
 	} = canonicalBody;
-	const currentReasoning = requestOptions.reasoning ?? currentBody.reasoning;
+	const currentReasoning = currentBody.reasoning;
 	const reasoningContext = canonicalReasoning?.context;
 	return {
 		...historyBody,
@@ -195,20 +200,20 @@ async function runAttempt(
 		...(options.transport ? { transport: options.transport } : {}),
 		...(options.runtime.codexTransport ? { canonicalCompaction: true } : {}),
 		compactionDiagnostics: compactionDiagnostic,
+		diagnostics: options.diagnostics,
 		maxRetries: options.runtime.codexTransport ? MAX_STREAM_RETRIES : 0,
-		...(typeof options.requestOptions.service_tier === "string"
-			? { serviceTier: options.requestOptions.service_tier as never }
+		...(typeof options.requestOptions.serviceTier === "string"
+			? { serviceTier: options.requestOptions.serviceTier as never }
 			: {}),
-		...(options.requestOptions.text?.verbosity ? { textVerbosity: options.requestOptions.text.verbosity } : {}),
+		...(options.requestOptions.textVerbosity ? { textVerbosity: options.requestOptions.textVerbosity } : {}),
+		...(options.requestOptions.reasoning ? { reasoning: options.requestOptions.reasoning } : {}),
 		onOutputItemDone: (item) => outputItems.push(item),
 		onResponse: (response) => {
 			responseStatus = response.status;
 		},
 		onPayload: async (payload) => {
 			const body = payload as ResponsesBody;
-			const requestBody = canonicalBody
-				? withCurrentCompactionControls(canonicalBody, body, options.requestOptions)
-				: body;
+			const requestBody = canonicalBody ? withCurrentCompactionControls(canonicalBody, body) : body;
 			const promptInput = normalizeRemoteCompactionV2PromptInput(
 				canonicalInput ?? options.promptInput,
 			) as ResponsesInputItem[];
@@ -231,9 +236,6 @@ async function runAttempt(
 			return {
 				...requestBody,
 				input: [...request.request.input, { type: "compaction_trigger" }],
-				...(!canonicalBody && options.requestOptions.reasoning
-					? { reasoning: structuredClone(options.requestOptions.reasoning) }
-					: {}),
 			};
 		},
 	};

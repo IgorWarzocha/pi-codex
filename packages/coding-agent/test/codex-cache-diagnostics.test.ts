@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { codexDiagnosticsFailure } from "@earendil-works/pi-ai/providers/openai-codex";
 import { test } from "vitest";
-import { codexDiagnosticsFailure } from "../src/diagnostics/failure.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+import type { CodexDiagnosticsContext } from "../src/diagnostics/context.ts";
+import { createLazyCodexDiagnostics } from "../src/diagnostics/lazy.ts";
 import { codexDiagnosticsLogPath, createCodexDiagnosticsLog } from "../src/diagnostics/logger.ts";
 
 test("cache diagnostics log is session-derived, readable, and omits raw provider payloads", async () => {
@@ -85,4 +88,53 @@ test("cache diagnostics log is session-derived, readable, and omits raw provider
 	} finally {
 		await rm(agentDir, { recursive: true, force: true });
 	}
+});
+
+test("cache diagnostics sinks remain scoped to their owning sessions", async () => {
+	const createContext = (statuses: string[]): CodexDiagnosticsContext =>
+		({
+			cwd: "/work/project",
+			model: {
+				provider: "openai-codex",
+				id: "gpt-5.4",
+				api: "openai-codex-responses",
+				baseUrl: "https://chatgpt.com/backend-api",
+			},
+			sessionManager: SessionManager.inMemory(),
+			ui: {
+				notify: () => {},
+				setStatus: (_key: string, value: string | undefined) => {
+					if (value) statuses.push(value);
+				},
+				theme: { fg: (_color: string, value: string) => value },
+			},
+		}) as unknown as CodexDiagnosticsContext;
+	const firstStatuses: string[] = [];
+	const secondStatuses: string[] = [];
+	const first = createLazyCodexDiagnostics();
+	const second = createLazyCodexDiagnostics();
+	await first.configure({
+		mode: "status",
+		active: true,
+		context: createContext(firstStatuses),
+		agentDir: "/tmp",
+	});
+	await second.configure({
+		mode: "status",
+		active: true,
+		context: createContext(secondStatuses),
+		agentDir: "/tmp",
+	});
+
+	const firstSink = first.sink();
+	const secondSink = second.sink();
+	assert.ok(firstSink);
+	assert.ok(secondSink);
+	assert.notEqual(firstSink, secondSink);
+	await first.shutdown();
+	secondSink({ type: "prewarm-ready", transport: "websocket", socketReused: true });
+
+	assert.match(secondStatuses.at(-1) ?? "", /prewarm ready/);
+	assert.doesNotMatch(firstStatuses.at(-1) ?? "", /prewarm ready/);
+	await second.shutdown();
 });

@@ -1,4 +1,12 @@
-import { openAICodexResponsesApi } from "../api/openai-codex-responses.lazy.ts";
+import { withRemoteCompactionV2Feature } from "../api/openai-codex/compaction-v2-feature.ts";
+import { codexDiagnosticsFailure } from "../api/openai-codex/diagnostic-failure.ts";
+import { extractAccountId, resolveCodexWebSocketUrl } from "../api/openai-codex/headers.ts";
+import {
+	canonicalCompactionPromptInput,
+	canonicalCompactionRequestBody,
+	resolveCanonicalCompactionPromptInput,
+} from "../api/openai-codex/session-continuity.ts";
+import { prewarmOpenAICodexWebSocket, stream, streamSimple } from "../api/openai-codex-responses.ts";
 import { lazyOAuth } from "../auth/helpers.ts";
 import { loadOpenAICodexOAuth } from "../auth/oauth/load.ts";
 import { createProvider, type Provider } from "../models.ts";
@@ -18,6 +26,28 @@ export function openaiCodexProvider(): Provider<"openai-codex-responses"> {
 			}),
 		},
 		models: withOpenAICodexDaybreakModels(Object.values(OPENAI_CODEX_MODELS)),
-		api: openAICodexResponsesApi(),
+		api: { stream, streamSimple },
 	});
 }
+
+export {
+	canonicalCompactionPromptInput,
+	canonicalCompactionRequestBody,
+	codexDiagnosticsFailure,
+	extractAccountId,
+	prewarmOpenAICodexWebSocket,
+	resolveCanonicalCompactionPromptInput,
+	resolveCodexWebSocketUrl,
+	withRemoteCompactionV2Feature,
+};
+export type {
+	CodexDiagnosticsEvent,
+	CodexDiagnosticsFailure,
+	CodexDiagnosticsFailureCategory,
+	CodexDiagnosticsLane,
+	CodexDiagnosticsSink,
+	CodexDiagnosticsTransport,
+	CodexPrewarmResult,
+	OpenAICodexStreamOptions,
+	ResponsesBody,
+} from "../api/openai-codex/types.ts";

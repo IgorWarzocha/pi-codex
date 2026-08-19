@@ -1,4 +1,5 @@
 import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
+import { extractAccountId } from "@earendil-works/pi-ai/providers/openai-codex";
 import type { ExtensionContext } from "../core/extensions/types.ts";
 import {
 	isCanonicalCodexAliasModel,
@@ -12,7 +13,6 @@ export const CODEX_TOOL_PROVIDER_UNSUPPORTED_MESSAGE =
 	"web_run/imagegen requires an OpenAI Codex-compatible Responses provider or /login openai-codex";
 
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api";
-const JWT_CLAIM_PATH = "https://api.openai.com/auth";
 
 export interface CodexToolProvider {
 	route: "openai-codex" | "configured-responses";
@@ -28,19 +28,6 @@ export type AllowConfiguredCodexToolProvider = (model: ExtensionContext["model"]
 
 const CODEX_ORIGINATOR = "codex_cli_rs";
 const OPENAI_CODEX_PROVIDER = "openai-codex";
-
-function extractAccountId(token: string): string {
-	try {
-		const parts = token.split(".");
-		if (parts.length !== 3) throw new Error("Invalid token");
-		const payload = JSON.parse(Buffer.from(parts[1] ?? "", "base64").toString("utf8"));
-		const accountId = payload?.[JWT_CLAIM_PATH]?.chatgpt_account_id;
-		if (typeof accountId !== "string" || accountId.length === 0) throw new Error("No account ID in token");
-		return accountId;
-	} catch {
-		throw new Error("Failed to extract accountId from token");
-	}
-}
 
 export function resolveCodexApiProviderBaseUrl(modelBaseUrl: string | undefined): string {
 	const base = modelBaseUrl?.trim() || DEFAULT_CODEX_BASE_URL;

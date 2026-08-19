@@ -20,24 +20,8 @@ type CanonicalSessionState = {
 	responseItems: readonly unknown[];
 };
 
-type CanonicalSessionRegistry = {
-	sessions: Map<string, CanonicalSessionState>;
-	lanes: Map<string, CanonicalSessionLane>;
-};
-
-const CANONICAL_SESSION_REGISTRY = Symbol.for("@earendil-works/pi-ai/openai-codex-canonical-sessions");
-const globalRegistry = globalThis as typeof globalThis & { [key: symbol]: unknown };
-const existingRegistry = globalRegistry[CANONICAL_SESSION_REGISTRY];
-const canonicalSessionRegistry: CanonicalSessionRegistry =
-	existingRegistry &&
-	typeof existingRegistry === "object" &&
-	"sessions" in existingRegistry &&
-	"lanes" in existingRegistry
-		? (existingRegistry as CanonicalSessionRegistry)
-		: { sessions: new Map(), lanes: new Map() };
-globalRegistry[CANONICAL_SESSION_REGISTRY] = canonicalSessionRegistry;
-const canonicalSessions = canonicalSessionRegistry.sessions;
-const canonicalSessionLanes = canonicalSessionRegistry.lanes;
+const canonicalSessions = new Map<string, CanonicalSessionState>();
+const canonicalSessionLanes = new Map<string, CanonicalSessionLane>();
 
 function matchesLane(state: CanonicalSessionState, url: string, accountId: string, model: string): boolean {
 	return state.url === url && state.accountId === accountId && state.requestBody.model === model;

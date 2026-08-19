@@ -12,6 +12,7 @@ import {
 import { resolvePath } from "../utils/paths.ts";
 import { AgentSession } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
+import type { CodexSessionRuntime } from "./codex-session-runtime.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
@@ -274,6 +275,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	};
 
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
+	const codexSessionRuntimeRef: { current?: CodexSessionRuntime } = {};
 
 	agent = new Agent({
 		initialState: {
@@ -303,6 +305,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 							textVerbosity: piCodexSettings.openai?.verbosity ?? "low",
 							fast: piCodexSettings.openai?.fast ?? false,
 							responsesCompaction: piCodexSettings.compaction?.responsesCompaction ?? true,
+							diagnostics: codexSessionRuntimeRef.current?.diagnosticsSink(),
 						}
 					: {};
 			const requestOptions = {
@@ -327,11 +330,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			return modelRuntime.streamSimple(model, context, requestOptions);
 		},
 		onPayload: async (payload, _model) => {
+			const nativePayload = await codexSessionRuntimeRef.current?.rewriteProviderRequest(payload);
+			const preparedPayload = nativePayload ?? payload;
 			const runner = extensionRunnerRef.current;
 			if (!runner?.hasHandlers("before_provider_request")) {
-				return payload;
+				return preparedPayload;
 			}
-			return runner.emitBeforeProviderRequest(payload);
+			return runner.emitBeforeProviderRequest(preparedPayload);
 		},
 		onResponse: async (response, _model) => {
 			const runner = extensionRunnerRef.current;
@@ -385,6 +390,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		allowedToolNames,
 		excludedToolNames,
 		extensionRunnerRef,
+		codexSessionRuntimeRef,
 		sessionStartEvent: options.sessionStartEvent,
 	});
 	const extensionsResult = resourceLoader.getExtensions();

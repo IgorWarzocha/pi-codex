@@ -1,5 +1,5 @@
 import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ModelRegistry } from "../../core/model-registry.ts";
 import { isCanonicalCodexSubscriptionModel, isOpenAICodexModel } from "../prompt/codex-model.ts";
 
 export const DEFAULT_SUPPORTED_PROVIDERS = ["openai-codex"] as const;
@@ -8,6 +8,11 @@ export const DEFAULT_SUPPORTED_APIS = ["openai-responses", "openai-codex-respons
 type DefaultSupportedApi = (typeof DEFAULT_SUPPORTED_APIS)[number];
 
 type RuntimeModel = Model<Api>;
+
+export interface NativeCompactionModelContext {
+	model: RuntimeModel | undefined;
+	modelRegistry: Pick<ModelRegistry, "getApiKeyAndHeaders">;
+}
 
 type NativeCompactionFailureReason =
 	| "disabled"
@@ -78,7 +83,7 @@ export function normalizeBaseUrl(baseUrl: string | undefined | null): string | u
 }
 
 async function resolveRequestAuth(
-	ctx: ExtensionContext,
+	ctx: NativeCompactionModelContext,
 	model: RuntimeModel,
 ): Promise<{ apiKey?: string | undefined; headers?: ProviderHeaders | undefined; baseUrl?: string | undefined }> {
 	const modelRegistry = ctx.modelRegistry as {
@@ -135,7 +140,7 @@ export function getRuntimeModelDescriptor(model: RuntimeModel | undefined): {
 }
 
 export async function resolveNativeCompactionEnvironment(
-	ctx: ExtensionContext,
+	ctx: NativeCompactionModelContext,
 	options: NativeCompactionSupportOptions = {},
 	payload?: unknown,
 ): Promise<NativeCompactionEnvironmentResolution> {
