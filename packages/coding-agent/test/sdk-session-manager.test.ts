@@ -80,15 +80,17 @@ describe("createAgentSession session manager defaults", () => {
 		expect(session.sessionManager).toBe(sessionManager);
 		expect(session.systemPrompt).toContain(`Current working directory: ${sessionCwd}`);
 
-		const execTool = session.agent.state.tools.find((tool) => tool.name === "exec_command");
+		const execTool = session.agent.state.tools.find((tool) => tool.name === "exec");
 		expect(execTool).toBeTruthy();
-		const result = await execTool!.execute("test", { cmd: "pwd" });
+		const result = await execTool!.execute("test", {
+			code: 'const result = await tools.exec_command({ cmd: "pwd" }); text(result.output);',
+		});
 		const output = result.content
 			.filter((item): item is { type: "text"; text: string } => item.type === "text")
 			.map((item) => item.text)
 			.join("");
 
-		expect(realpathSync(output.trim().split("\n").at(-1)!)).toBe(realpathSync(sessionCwd));
+		expect(output).toContain(realpathSync(sessionCwd));
 
 		session.dispose();
 	});

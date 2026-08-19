@@ -61,14 +61,15 @@ describe("native skills tool", () => {
 		expect(result).not.toContain(join(eager.baseDir, "outside-link"));
 	});
 
-	it("rescans immediately before every invocation", async () => {
+	it("rescans immediately before composed invocations", async () => {
 		let refreshes = 0;
-		const tool = createSkillsCodeModeTool({
+		const options = {
 			getSkills: () => [eager, lazy],
 			refreshSkills: async () => {
 				refreshes++;
 			},
-		});
+		};
+		const tool = createSkillsCodeModeTool(options);
 
 		const result = await tool.invoke("read hardening", { cwd: tempDir }, new AbortController().signal);
 		expect(result).toContain("Hardening body");

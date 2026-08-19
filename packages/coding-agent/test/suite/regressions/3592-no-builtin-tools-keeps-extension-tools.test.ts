@@ -59,7 +59,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: getModel("openai-codex", "gpt-5.6-luna")!,
 			settingsManager,
 			sessionManager,
 			resourceLoader,
@@ -78,18 +78,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual([
-			"apply_patch",
-			"dynamic_tool",
-			"exec",
-			"exec_command",
-			"imagegen",
-			"notebook",
-			"view_image",
-			"wait",
-			"web_run",
-			"write_stdin",
-		]);
+		).toEqual(["dynamic_tool", "exec", "notebook", "wait"]);
 		expect(session.getActiveToolNames()).toEqual(["dynamic_tool"]);
 		expect(session.systemPrompt).not.toContain("Available tools:");
 		expect(session.systemPrompt).not.toContain("Run dynamic test behavior");
@@ -117,7 +106,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 		const { session } = await createAgentSessionFromServices({
 			services,
 			sessionManager,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: getModel("openai-codex", "gpt-5.6-luna")!,
 			noTools: "builtin",
 		});
 

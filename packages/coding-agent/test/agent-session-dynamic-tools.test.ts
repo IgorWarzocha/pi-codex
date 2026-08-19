@@ -141,7 +141,7 @@ describe("AgentSession dynamic tool registration", () => {
 
 		const allTools = session.getAllTools();
 		const dynamicTool = allTools.find((tool) => tool.name === "dynamic_tool");
-		const execTool = allTools.find((tool) => tool.name === "exec_command");
+		const execTool = allTools.find((tool) => tool.name === "exec");
 
 		expect(allTools.map((tool) => tool.name)).toContain("dynamic_tool");
 		expect(dynamicTool?.promptGuidelines).toEqual([
@@ -154,7 +154,7 @@ describe("AgentSession dynamic tool registration", () => {
 			origin: "top-level",
 		});
 		expect(execTool?.sourceInfo).toMatchObject({
-			path: "<builtin:exec_command>",
+			path: "<builtin:exec>",
 			source: "builtin",
 			scope: "temporary",
 			origin: "top-level",

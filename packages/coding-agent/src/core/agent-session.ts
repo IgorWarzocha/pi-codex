@@ -1171,10 +1171,8 @@ export class AgentSession {
 			"The following important skills are now available in this session. This is a context update, not a user request.",
 			...skills
 				.sort((left, right) => left.name.localeCompare(right.name))
-				.map(
-					(skill) => `- ${skill.name}: ${skill.description.replace(/\s+/g, " ").trim()} (file: ${skill.filePath})`,
-				),
-			"In Code or Notebook Mode, read them through the skills tool. Otherwise read the listed SKILL.md file.",
+				.map((skill) => `- ${skill.name}: ${skill.description.replace(/\s+/g, " ").trim()}`),
+			"Read them through the native skills tool by exact name.",
 			"</skill_availability>",
 		];
 		return {
@@ -1296,16 +1294,14 @@ export class AgentSession {
 			promptGuidelines,
 			shell: this.settingsManager.getShellPath(),
 			mode: this._codexExecutionMode,
-			codeModeToolsPrompt:
-				this._codexExecutionMode !== "normal"
-					? this._codexToolRuntime.buildCodeModePromptSection(this.settingsManager.isProjectTrusted())
-					: undefined,
+			codeModeToolsPrompt: this._codexToolRuntime.buildCodeModePromptSection(
+				this.settingsManager.isProjectTrusted(),
+			),
 		};
 		return buildSystemPrompt(this._baseSystemPromptOptions);
 	}
 
 	private _refreshCodeModePromptTools(): void {
-		if (this._codexExecutionMode === "normal") return;
 		this._codexToolRuntime.resetCodeModePromptTools();
 		this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
 		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
@@ -1361,9 +1357,7 @@ export class AgentSession {
 			if (requestedMode !== this._codexExecutionMode) {
 				await this._syncCodexExecutionMode(this.model);
 			}
-			if (this._codexExecutionMode !== "normal") {
-				void this._codexToolRuntime.prepareCodeMode().catch(() => undefined);
-			}
+			void this._codexToolRuntime.prepareCodeMode().catch(() => undefined);
 			await this.agent.prompt(messages);
 			while (await this._handlePostAgentRun()) {
 				await this.agent.continue();
@@ -1874,11 +1868,7 @@ export class AgentSession {
 		this._codexExecutionMode = nextMode;
 		this._codexToolRuntime.activateExecutionMode(nextMode);
 		this._codexToolRuntime.resetCodeModePromptTools();
-		const ownedNames = new Set([
-			...this._codexToolRuntime.toolNames("normal"),
-			...this._codexToolRuntime.toolNames("code"),
-			...this._codexToolRuntime.toolNames("notebook"),
-		]);
+		const ownedNames = new Set(this._codexToolRuntime.toolNames("notebook"));
 		const preserved = this.getActiveToolNames().filter((name) => !ownedNames.has(name));
 		this._refreshToolRegistry({
 			activeToolNames: [...this._codexToolRuntime.toolNames(nextMode), ...preserved],
@@ -3020,11 +3010,7 @@ export class AgentSession {
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
 			: [...this._codexToolRuntime.toolNames(this._codexExecutionMode)];
-		const ownedNames = new Set([
-			...this._codexToolRuntime.toolNames("normal"),
-			...this._codexToolRuntime.toolNames("code"),
-			...this._codexToolRuntime.toolNames("notebook"),
-		]);
+		const ownedNames = new Set(this._codexToolRuntime.toolNames("notebook"));
 		const requestedActiveToolNames =
 			options.activeToolNames && previousMode !== this._codexExecutionMode
 				? [

@@ -1,15 +1,10 @@
+import { isProductModelId, PRODUCT_MODEL_IDS, PRODUCT_PROVIDER_ID, type ProductModelId } from "../../product/models.ts";
 import { type ExecutionMode, normalizeExecutionMode } from "./execution-mode.ts";
 
 export type CodexVerbosity = "low" | "medium" | "high";
 export type CacheDiagnosticsMode = "off" | "status" | "status-and-log";
 export type AllProvidersMode = "off" | "on" | "extras";
-export type HelperModel =
-	| "gpt-5.6-luna"
-	| "gpt-5.6-terra"
-	| "gpt-5.6-sol"
-	| "gpt-5.5"
-	| "gpt-5.4-mini"
-	| "gpt-5.3-codex-spark";
+export type HelperModel = ProductModelId;
 export type WebSearchModel = HelperModel;
 export type V2UserMessageRetention = 16 | 32 | 64;
 export const MIN_NOTEBOOK_HEAP_MIB = 256;
@@ -18,7 +13,7 @@ export type DictationShortcutMode = "push" | "toggle";
 export const VOICE_CONTEXT_REASONING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type VoiceContextReasoning = (typeof VOICE_CONTEXT_REASONING_LEVELS)[number];
 export const DEFAULT_VOICE_CONTEXT_REASONING: VoiceContextReasoning = "high";
-export type VoiceContextModel = { provider: string; modelId: string };
+export type VoiceContextModel = { provider: typeof PRODUCT_PROVIDER_ID; modelId: ProductModelId };
 
 export const REALTIME_V3_VOICES = [
 	"juniper",
@@ -33,14 +28,7 @@ export const REALTIME_V3_VOICES = [
 ] as const;
 export type RealtimeV3Voice = (typeof REALTIME_V3_VOICES)[number];
 
-export const WEB_SEARCH_MODELS: readonly WebSearchModel[] = [
-	"gpt-5.6-luna",
-	"gpt-5.6-terra",
-	"gpt-5.6-sol",
-	"gpt-5.5",
-	"gpt-5.4-mini",
-	"gpt-5.3-codex-spark",
-];
+export const WEB_SEARCH_MODELS: readonly WebSearchModel[] = PRODUCT_MODEL_IDS;
 export const V2_USER_MESSAGE_RETENTION_OPTIONS: readonly V2UserMessageRetention[] = [16, 32, 64];
 
 export interface CodexConversionConfig {
@@ -228,7 +216,7 @@ function normalizeVoiceContextModel(value: unknown): VoiceContextModel | undefin
 	if (!isObject(value)) return undefined;
 	const provider = optionalString(value["provider"]);
 	const modelId = optionalString(value["modelId"]);
-	return provider && modelId ? { provider, modelId } : undefined;
+	return provider === PRODUCT_PROVIDER_ID && modelId && isProductModelId(modelId) ? { provider, modelId } : undefined;
 }
 
 export function normalizeVoiceContextReasoning(value: unknown): VoiceContextReasoning {

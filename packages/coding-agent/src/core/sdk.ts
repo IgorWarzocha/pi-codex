@@ -4,12 +4,7 @@ import { clampThinkingLevel, type Message, type Model, type ProviderHeaders } fr
 import type { OpenAICodexStreamOptions, ResponsesBody } from "@earendil-works/pi-ai/providers/openai-codex";
 import { getAgentDir } from "../config.ts";
 import { streamProductModel } from "../product/providers.ts";
-import {
-	CODE_MODE_TOOL_NAMES,
-	NORMAL_CODEX_TOOL_NAMES,
-	NOTEBOOK_MODE_TOOL_NAMES,
-	resolveCodexExecutionMode,
-} from "../tools/runtime.ts";
+import { CODE_MODE_TOOL_NAMES, NOTEBOOK_MODE_TOOL_NAMES, resolveCodexExecutionMode } from "../tools/runtime.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AgentSession } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
@@ -227,13 +222,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	}
 
 	const executionMode = resolveCodexExecutionMode(model, settingsManager.getExecutionMode());
-	const defaultActiveToolNames = [
-		...(executionMode === "notebook"
-			? NOTEBOOK_MODE_TOOL_NAMES
-			: executionMode === "code"
-				? CODE_MODE_TOOL_NAMES
-				: NORMAL_CODEX_TOOL_NAMES),
-	];
+	const defaultActiveToolNames = [...(executionMode === "notebook" ? NOTEBOOK_MODE_TOOL_NAMES : CODE_MODE_TOOL_NAMES)];
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;

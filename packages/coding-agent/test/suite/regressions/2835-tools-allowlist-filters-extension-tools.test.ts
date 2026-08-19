@@ -55,7 +55,7 @@ describe("regression #2835: tool allowlists filter extension tools", () => {
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: getModel("openai-codex", "gpt-5.6-luna")!,
 			settingsManager,
 			sessionManager,
 			resourceLoader,
@@ -66,15 +66,15 @@ describe("regression #2835: tool allowlists filter extension tools", () => {
 	}
 
 	it("allows only explicitly listed built-in and extension tools", async () => {
-		const session = await createSession(["exec_command", "dynamic_tool"]);
+		const session = await createSession(["exec", "dynamic_tool"]);
 
 		expect(
 			session
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["dynamic_tool", "exec_command"]);
-		expect(session.getActiveToolNames().sort()).toEqual(["dynamic_tool", "exec_command"]);
+		).toEqual(["dynamic_tool", "exec"]);
+		expect(session.getActiveToolNames().sort()).toEqual(["dynamic_tool", "exec"]);
 		expect(session.systemPrompt).not.toContain("Available tools:");
 		expect(session.systemPrompt).not.toContain("Run dynamic test behavior");
 		session.dispose();

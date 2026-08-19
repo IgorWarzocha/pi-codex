@@ -6,7 +6,7 @@ Read this only to work on custom-tool definitions, not to call them. Do not enab
 
 Definitions are top-level `*.toml` files in either location:
 
-- global: `~/.pi/agent/custom-tools/`, or `$PI_CODING_AGENT_DIR/custom-tools/` when configured
+- global: `~/.pi-codex/agent/custom-tools/`, or `$PI_CODING_AGENT_DIR/custom-tools/` when configured
 - project-local in trusted projects: `<session-cwd>/.pi/custom-tools/`
 
 Only the active session working directory is checked; parent directories are not searched. Project-local definitions are ignored unless Pi trusts the project. A project-local definition replaces a global definition with the same tool name. Each filename becomes a JavaScript method on `tools`, so use a JavaScript-compatible identifier.

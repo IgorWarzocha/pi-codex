@@ -13,6 +13,7 @@ import {
 import chalk from "chalk";
 import { minimatch } from "minimatch";
 import { isValidThinkingLevel } from "../cli/args.ts";
+import { PRODUCT_DEFAULT_MODEL_ID, PRODUCT_MODEL_IDS, PRODUCT_PROVIDER_ID } from "../product/models.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { withProfileContextWindow } from "./model-profile.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
@@ -24,7 +25,7 @@ export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	anthropic: "claude-opus-4-8",
 	openai: "gpt-5.5",
 	"azure-openai-responses": "gpt-5.4",
-	"openai-codex": "gpt-5.5",
+	"openai-codex": PRODUCT_DEFAULT_MODEL_ID,
 	radius: "auto",
 	nvidia: "nvidia/nemotron-3-super-120b-a12b",
 	deepseek: "deepseek-v4-pro",
@@ -570,6 +571,14 @@ export function resolveCliModel(options: {
 	}
 
 	if (provider) {
+		if (provider === PRODUCT_PROVIDER_ID) {
+			return {
+				model: undefined,
+				thinkingLevel: undefined,
+				warning,
+				error: `Pi-Codex supports only: ${PRODUCT_MODEL_IDS.join(", ")}.`,
+			};
+		}
 		// Parse thinking level suffix from the pattern before building the fallback model,
 		// but only when --thinking is not explicitly provided.
 		// e.g. "zai-org/GLM-5.1-FP8:high" → modelId="zai-org/GLM-5.1-FP8", fallbackThinking="high"

@@ -1,8 +1,9 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { type ModelProfile, withProfileContextWindow } from "../core/model-profile.ts";
+import { PRODUCT_MODEL_IDS } from "./models.ts";
 
-export const CODEX_PROFILE_MODEL_IDS = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"] as const;
+export const CODEX_PROFILE_MODEL_IDS = PRODUCT_MODEL_IDS;
 export const CODEX_PROFILE_CONTEXT_WINDOWS = [272_000, 472_000, 872_000] as const;
 export const CODEX_PROFILE_REASONING_LEVELS: ThinkingLevel[] = ["low", "medium", "high", "xhigh", "max"];
 

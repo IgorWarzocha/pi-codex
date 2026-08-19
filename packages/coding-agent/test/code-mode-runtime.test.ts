@@ -24,8 +24,8 @@ import type { CustomToolDefinition, ProgrammaticCodeModeToolDefinition } from ".
 import { CODE_MODE_TOOL_NAMES, NOTEBOOK_MODE_TOOL_NAMES } from "../src/tools/runtime.ts";
 
 const codeModeModel: Model<"openai-codex-responses"> = {
-	id: "gpt-daybreak-blue-latest",
-	name: "Daybreak Blue",
+	id: "gpt-5.6-luna",
+	name: "Luna",
 	api: "openai-codex-responses",
 	provider: "openai-codex",
 	baseUrl: "https://chatgpt.com/backend-api",
@@ -64,24 +64,8 @@ describe("Pi-Codex Code Mode", () => {
 		expect(session.getActiveToolNames()).toEqual(CODE_MODE_TOOL_NAMES);
 		expect(session.systemPrompt).toContain("Tools available in exec:");
 		expect(session.systemPrompt).toContain("await tools.exec_command");
+		expect(session.systemPrompt).not.toContain("To create or edit a custom tool");
 		expect(session.systemPrompt).not.toContain("Use exec_command for shell commands, file inspection");
-		session.dispose();
-	});
-
-	it("keeps normal mode available as an explicit setting", async () => {
-		const session = (
-			await createAgentSession({
-				cwd: tempDir,
-				agentDir,
-				model: codeModeModel,
-				settingsManager: SettingsManager.inMemory({ executionMode: "normal" }),
-				sessionManager: SessionManager.inMemory(tempDir),
-			})
-		).session;
-
-		expect(session.getActiveToolNames()).not.toContain("exec");
-		expect(session.getActiveToolNames()).toContain("exec_command");
-		expect(session.systemPrompt).not.toContain("Tools available in exec:");
 		session.dispose();
 	});
 
@@ -115,13 +99,10 @@ describe("Pi-Codex Code Mode", () => {
 		).session;
 
 		expect(session.getActiveToolNames()).toEqual(CODE_MODE_TOOL_NAMES);
-		await session.setExecutionMode("normal");
-		expect(session.getActiveToolNames()).toContain("exec_command");
-		expect(session.getActiveToolNames()).not.toContain("exec");
-		await session.setExecutionMode("code");
-		expect(session.getActiveToolNames()).toEqual(CODE_MODE_TOOL_NAMES);
 		await session.setExecutionMode("notebook");
 		expect(session.getActiveToolNames()).toEqual(NOTEBOOK_MODE_TOOL_NAMES);
+		await session.setExecutionMode("code");
+		expect(session.getActiveToolNames()).toEqual(CODE_MODE_TOOL_NAMES);
 		session.dispose();
 	});
 

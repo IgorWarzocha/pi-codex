@@ -134,7 +134,6 @@ test("injects pending native compacted window into Pi compaction summarization p
 		modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: true as const, apiKey: "key" }) },
 	} as unknown as NativeCompactionContext;
 	const state: NativeCompactionState = {
-		executionMode: DEFAULT_CODEX_CONVERSION_CONFIG.executionMode,
 		config: {
 			...DEFAULT_CODEX_CONVERSION_CONFIG,
 			compaction: { ...DEFAULT_CODEX_CONVERSION_CONFIG.compaction, responsesCompaction: true },

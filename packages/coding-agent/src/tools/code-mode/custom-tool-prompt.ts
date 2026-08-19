@@ -10,8 +10,6 @@ export const WAIT_DESCRIPTION = "Resume or terminate a yielded exec cell";
 const BUNDLED_TOOLS_HEADING = "Tools available in exec:";
 const CUSTOM_TOOLS_HEADING = "Configured custom tools:";
 const DEFERRED_CUSTOM_TOOLS_GUIDANCE = "Deferred custom tools: find by name in ALL_TOOLS";
-const CUSTOM_TOOL_DOCUMENTATION_MARKER = "To create or edit a custom tool, read";
-const CUSTOM_TOOL_DOCUMENTATION_GUIDANCE = "Never read that file to discover or call tools";
 const CUSTOM_TOOLS_GUIDANCE = "Prefer custom tools for command-backed capabilities";
 
 function isConfiguredCustomTool(tool: CodeModeToolDefinition): tool is CustomToolDefinition {
@@ -32,11 +30,7 @@ function buildUsageSection(heading: string, tools: CodeModeToolMetadata[]): stri
 		.join("\n")}`;
 }
 
-export function buildCodeModeToolsPrompt(
-	tools: CodeModeToolDefinition[],
-	documentationPath?: string,
-	existingPrompt = "",
-): string {
+export function buildCodeModeToolsPrompt(tools: CodeModeToolDefinition[], existingPrompt = ""): string {
 	const bundled = tools.filter((tool) => !isConfiguredCustomTool(tool) && !tool.deferLoading);
 	const custom = tools.filter(isConfiguredCustomTool);
 	const promotedCustom = custom.filter((tool) => !tool.deferLoading);
@@ -47,9 +41,6 @@ export function buildCodeModeToolsPrompt(
 			: buildUsageSection(CUSTOM_TOOLS_HEADING, promotedCustom),
 		custom.some((tool) => tool.deferLoading) && !existingPrompt.includes(DEFERRED_CUSTOM_TOOLS_GUIDANCE)
 			? DEFERRED_CUSTOM_TOOLS_GUIDANCE
-			: undefined,
-		documentationPath && !existingPrompt.includes(CUSTOM_TOOL_DOCUMENTATION_MARKER)
-			? `${CUSTOM_TOOL_DOCUMENTATION_MARKER} ${documentationPath}; do not read Pi docs\n${CUSTOM_TOOL_DOCUMENTATION_GUIDANCE}`
 			: undefined,
 		custom.length > 0 && !existingPrompt.includes(CUSTOM_TOOLS_GUIDANCE) ? CUSTOM_TOOLS_GUIDANCE : undefined,
 	].filter(Boolean);

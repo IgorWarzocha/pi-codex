@@ -1,11 +1,11 @@
 import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
 import { extractAccountId } from "@earendil-works/pi-ai/providers/openai-codex";
 import type { ExtensionContext } from "../core/extensions/types.ts";
+import { isProductModelId, PRODUCT_MODEL_IDS } from "../product/models.ts";
 import {
 	isCanonicalCodexAliasModel,
 	isCanonicalCodexBaseUrl,
 	isCanonicalCodexSubscriptionModel,
-	isCodexTransportModel,
 	isOpenAICodexModel,
 } from "./prompt/codex-model.ts";
 
@@ -73,7 +73,7 @@ function isResponsesModel(model: ExtensionContext["model"]): boolean {
 }
 
 function isUsableOpenAICodexModel(model: ExtensionContext["model"]): boolean {
-	return isOpenAICodexModel(model) && isResponsesModel(model);
+	return Boolean(model && isOpenAICodexModel(model) && isResponsesModel(model) && isProductModelId(model.id));
 }
 
 function firstOpenAICodexModel(models: Model<Api>[]): Model<Api> | undefined {
@@ -89,9 +89,9 @@ function resolveOpenAICodexAuthModel(ctx: ExtensionContext): Model<Api> | undefi
 	const currentId = ctx.model?.id;
 	const direct = currentId ? registry.find?.(OPENAI_CODEX_PROVIDER, currentId) : undefined;
 	if (isUsableOpenAICodexModel(direct)) return direct;
-	const preferred = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4-mini", "gpt-5.3-codex-spark"]
-		.map((id) => registry.find?.(OPENAI_CODEX_PROVIDER, id))
-		.find((model): model is Model<Api> => isUsableOpenAICodexModel(model));
+	const preferred = PRODUCT_MODEL_IDS.map((id) => registry.find?.(OPENAI_CODEX_PROVIDER, id)).find(
+		(model): model is Model<Api> => isUsableOpenAICodexModel(model),
+	);
 	if (preferred) return preferred;
 	const available = registry.getAvailable?.();
 	if (available) return firstOpenAICodexModel(available);
@@ -103,7 +103,7 @@ function resolveCodexToolAuthModel(
 	ctx: ExtensionContext,
 	allowConfiguredProvider?: AllowConfiguredCodexToolProvider,
 ): Model<Api> {
-	if (isCodexTransportModel(ctx.model) && isResponsesModel(ctx.model)) return ctx.model as Model<Api>;
+	if (isUsableOpenAICodexModel(ctx.model)) return ctx.model as Model<Api>;
 	if (isResponsesModel(ctx.model) && allowConfiguredProvider?.(ctx.model)) return ctx.model as Model<Api>;
 	const openAICodexModel = resolveOpenAICodexAuthModel(ctx);
 	if (openAICodexModel) return openAICodexModel;

@@ -8,14 +8,13 @@ describe("buildSystemPrompt", () => {
 		const prompt = buildSystemPrompt({
 			cwd: "/workspace",
 			shell: "/usr/bin/zsh",
-			selectedTools: ["exec_command", "apply_patch"],
-			toolSnippets: { exec_command: "Run command", apply_patch: "Patch files" },
+			selectedTools: ["exec"],
 		});
 
 		expect(prompt).not.toContain("Available tools:");
 		expect(prompt).not.toContain("You are an expert coding assistant operating inside pi");
-		expect(prompt).toContain("- Use exec_command for shell commands, file inspection, builds, and tests");
-		expect(prompt).toContain("- Use apply_patch for text-file changes, including creates/deletes/moves");
+		expect(prompt).toContain("- Use tools.exec_command for shell commands; prefer rg and rg --files");
+		expect(prompt).toContain("- Use tools.apply_patch(patch) for file edits");
 		expect(prompt).toContain(
 			"Current shell: /usr/bin/zsh; follow its syntax, quoting, and variable rules; status is read-only, capture $? as rc",
 		);
@@ -46,7 +45,7 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).not.toContain("Use exec_command for shell commands, file inspection");
 	});
 
-	test("announces eager skills while leaving categorized skills to the native tool", () => {
+	test("announces important skills and lazy categories without exposing package paths", () => {
 		const skill = (name: string, category?: string): Skill => ({
 			name,
 			description: `${name} description`,
@@ -64,6 +63,33 @@ describe("buildSystemPrompt", () => {
 
 		expect(prompt).toContain("- deploy: deploy description");
 		expect(prompt).not.toContain("hardening description");
-		expect(prompt).toContain('use `tools.skills("read <exact-skill-name>")`');
+		expect(prompt).toContain("### Categories\n- swe");
+		expect(prompt).toContain("`list <category>...`");
+		expect(prompt).toContain("`read <exact-skill-name>`");
+		expect(prompt).toContain('call `tools.skills("...")`');
+		expect(prompt).not.toContain("/skills/");
+	});
+
+	test("keeps the skills block in Code Mode without a read tool", () => {
+		const skill: Skill = {
+			name: "deploy",
+			description: "Deploy safely",
+			filePath: "/skills/deploy/SKILL.md",
+			baseDir: "/skills/deploy",
+			sourceInfo: createSyntheticSourceInfo("/skills/deploy/SKILL.md", { source: "test" }),
+			disableModelInvocation: false,
+		};
+		const prompt = buildSystemPrompt({
+			cwd: "/workspace",
+			mode: "code",
+			selectedTools: ["exec"],
+			skills: [skill],
+		});
+
+		expect(prompt).toContain("<skills_instructions>");
+		expect(prompt).toContain("- deploy: Deploy safely");
+		expect(prompt).toContain('call `tools.skills("...")`');
+		expect(prompt).not.toContain("SKILL.md");
+		expect(prompt).not.toContain("read tool");
 	});
 });

@@ -416,6 +416,26 @@ describe("resolveCliModel", () => {
 		expect(result.error).toContain("No models available");
 	});
 
+	test("rejects custom OpenAI Codex model ids outside the Pi-Codex model set", () => {
+		const codexModel: Model<"anthropic-messages"> = {
+			...mockModels[0],
+			id: "gpt-5.6-luna",
+			provider: "openai-codex",
+		};
+		const registry = {
+			getModels: () => [codexModel],
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRuntime"];
+
+		const result = resolveCliModel({
+			cliProvider: "openai-codex",
+			cliModel: "gpt-5.5",
+			modelRuntime: registry,
+		});
+
+		expect(result.model).toBeUndefined();
+		expect(result.error).toContain("gpt-5.6-luna, gpt-5.6-terra, gpt-5.6-sol");
+	});
+
 	test("prefers the sole authenticated provider for an ambiguous bare exact model id", () => {
 		const azureModel: Model<"anthropic-messages"> = {
 			...mockModels[1],
@@ -697,7 +717,7 @@ describe("resolveCliModel", () => {
 describe("default model selection", () => {
 	test("openai defaults track current models", () => {
 		expect(defaultModelPerProvider.openai).toBe("gpt-5.5");
-		expect(defaultModelPerProvider["openai-codex"]).toBe("gpt-5.5");
+		expect(defaultModelPerProvider["openai-codex"]).toBe("gpt-5.6-luna");
 	});
 
 	test("zai, minimax, cerebras, and ant-ling defaults track current models", () => {

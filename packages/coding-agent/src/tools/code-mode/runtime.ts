@@ -1,5 +1,3 @@
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { EventBus } from "../../core/event-bus.ts";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import { ensureCodeModeHostBinary } from "./binary.ts";
@@ -211,10 +209,7 @@ export class CodeModeRuntime implements PublicCodeModeRuntime {
 		);
 		this.customPromptState = new Map(custom.map((tool) => [tool.name, tool.deferLoading]));
 		this.announcedPromotedCustomTools.clear();
-		this.promptSection = buildCodeModeToolsPrompt(
-			collectUniqueTools([...programmatic, ...custom]),
-			codeModeCustomToolsDocumentationPath(),
-		);
+		this.promptSection = buildCodeModeToolsPrompt(collectUniqueTools([...programmatic, ...custom]));
 		return this.promptSection;
 	}
 
@@ -305,10 +300,6 @@ function isExtensionContext(value: unknown): value is ExtensionContext {
 	return Boolean(
 		value && typeof value === "object" && "isProjectTrusted" in value && typeof value.isProjectTrusted === "function",
 	);
-}
-
-function codeModeCustomToolsDocumentationPath(): string {
-	return join(dirname(fileURLToPath(import.meta.url)), "CUSTOM-TOOLS.md");
 }
 
 function collectUniqueTools(tools: CodeModeToolDefinition[]): CodeModeToolDefinition[] {

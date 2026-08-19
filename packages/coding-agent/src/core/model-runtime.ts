@@ -37,6 +37,7 @@ import {
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
 import { getAgentDir } from "../config.ts";
+import { constrainProductProvider } from "../product/models.ts";
 import { createProductProviders } from "../product/providers.ts";
 import { operationSignal, raceWithAbortSignal } from "../utils/abort.ts";
 import { AuthStorage as DefaultAuthStorage } from "./auth-storage.ts";
@@ -141,6 +142,7 @@ export class ModelRuntime implements Models {
 	private readonly compositionErrors = new Map<string, string>();
 	private readonly modelsPath: string | undefined;
 	private readonly modelNetworkEnabled: boolean;
+	private readonly enforceProductModelPolicy: boolean;
 	private config: ModelConfig;
 	private snapshot: ModelRuntimeSnapshot = {
 		all: [],
@@ -162,11 +164,13 @@ export class ModelRuntime implements Models {
 		modelsStore: ModelsStore,
 		providers: readonly Provider[],
 		modelNetworkEnabled: boolean,
+		enforceProductModelPolicy: boolean,
 	) {
 		this.credentials = credentials;
 		this.config = config;
 		this.modelsPath = modelsPath;
 		this.modelNetworkEnabled = modelNetworkEnabled;
+		this.enforceProductModelPolicy = enforceProductModelPolicy;
 		this.defaultBuiltins = new Map(providers.map((provider) => [provider.id, provider]));
 		for (const [providerId, provider] of this.defaultBuiltins) this.builtins.set(providerId, provider);
 		this.models = createModels({ credentials, modelsStore });
@@ -193,6 +197,7 @@ export class ModelRuntime implements Models {
 			modelsStore,
 			providers,
 			process.env.PI_OFFLINE === undefined,
+			options.builtinProviders === undefined,
 		);
 		const refreshFromNetwork = runtime.modelNetworkEnabled && options.allowModelNetwork === true;
 		const controller =
@@ -231,17 +236,18 @@ export class ModelRuntime implements Models {
 			return;
 		}
 		if (base && !this.config.getProvider(providerId) && !extension) {
-			// No overlays: use the builtin untouched so its auth/login/stream behavior is exact.
-			this.models.setProvider(base);
+			// No overlays: preserve builtin auth/login/stream behavior and apply only product catalog policy.
+			this.models.setProvider(this.enforceProductModelPolicy ? constrainProductProvider(base) : base);
 			this.compositionErrors.delete(providerId);
 			return;
 		}
 		try {
-			this.models.setProvider(composeModelProvider(providerId, base, this.config, extension));
+			const provider = composeModelProvider(providerId, base, this.config, extension);
+			this.models.setProvider(this.enforceProductModelPolicy ? constrainProductProvider(provider) : provider);
 			this.compositionErrors.delete(providerId);
 		} catch (error) {
 			this.compositionErrors.set(providerId, error instanceof Error ? error.message : String(error));
-			if (base) this.models.setProvider(base);
+			if (base) this.models.setProvider(this.enforceProductModelPolicy ? constrainProductProvider(base) : base);
 			else this.models.deleteProvider(providerId);
 		}
 	}

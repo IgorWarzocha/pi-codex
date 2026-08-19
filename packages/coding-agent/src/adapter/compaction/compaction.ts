@@ -4,9 +4,7 @@ import type { CompactionPreparation, CompactionResult } from "../../core/compact
 import type { ModelRegistry } from "../../core/model-registry.ts";
 import type { SessionEntry, SessionManager } from "../../core/session-manager.ts";
 import { CODE_MODE_EXEC_GRAMMAR_INPUTS } from "../../tools/code-mode/exec-contract.ts";
-import { resolveCodexExecutionMode } from "../../tools/runtime.ts";
 import type { CodexConversionConfig } from "../activation/config.ts";
-import type { ExecutionMode } from "../activation/execution-mode.ts";
 import {
 	createNativeCompactionDetails,
 	createNativeCompactionShimResult,
@@ -42,7 +40,6 @@ import {
 
 export interface NativeCompactionState {
 	config: CodexConversionConfig;
-	executionMode: ExecutionMode;
 	activeProviderSystemPrompt?: string | undefined;
 	pendingPiCompactionNativeWindow?:
 		| {
@@ -80,10 +77,6 @@ function nativeCompactionEnabled(ctx: NativeCompactionContext, state: NativeComp
 	return (
 		state.config.compaction.responsesCompaction && ctx.model?.provider === "openai-codex" && isResponsesContext(ctx)
 	);
-}
-
-function usesCodeMode(ctx: NativeCompactionContext, state: NativeCompactionState): boolean {
-	return resolveCodexExecutionMode(ctx.model, state.executionMode) !== "normal";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -269,8 +262,7 @@ async function handleCodexSessionBeforeCompactInner(
 
 	const runtime = resolution.runtime;
 	const compactionTargetModel = runtime.currentModel;
-	const codeMode = usesCodeMode(ctx, state);
-	const serializationOptions = codeMode ? { grammarToolInputProperties: CODE_MODE_EXEC_GRAMMAR_INPUTS } : undefined;
+	const serializationOptions = { grammarToolInputProperties: CODE_MODE_EXEC_GRAMMAR_INPUTS };
 	const requestOptions = buildCompactionRequestOptions(ctx, state, compactionTargetModel);
 	const branchEntries = ctx.sessionManager.getBranch();
 	const latestNativeCompaction = resolveLatestNativeCompactionEntry(branchEntries, {
@@ -426,9 +418,7 @@ export async function rewriteCodexCompactedProviderRequest(
 		payload: runtime.payload,
 		branchEntries,
 		compactionEntry,
-		serializationOptions: usesCodeMode(ctx, state)
-			? { grammarToolInputProperties: CODE_MODE_EXEC_GRAMMAR_INPUTS }
-			: undefined,
+		serializationOptions: { grammarToolInputProperties: CODE_MODE_EXEC_GRAMMAR_INPUTS },
 	});
 	if (rewrite.ok) return rewrite.rewrittenPayload;
 	const detail = rewrite.parity?.mismatches.slice(0, 3).join("; ");

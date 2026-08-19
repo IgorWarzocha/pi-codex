@@ -7,8 +7,9 @@ import type {
 	SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+import { isProductModel } from "./models.ts";
 
-export const PRODUCT_PROVIDER_ID = "openai-codex";
+export { PRODUCT_PROVIDER_ID } from "./models.ts";
 
 export function createProductProviders(): Provider[] {
 	return [openaiCodexProvider()];
@@ -20,7 +21,7 @@ export function streamProductModel(
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
 	const provider = openaiCodexProvider();
-	if (model.provider !== provider.id || model.api !== "openai-codex-responses") {
+	if (!isProductModel(model) || model.api !== "openai-codex-responses") {
 		throw new Error(`Pi-Codex cannot stream ${model.provider}/${model.api}`);
 	}
 	return provider.streamSimple(model as Model<"openai-codex-responses">, context, options);

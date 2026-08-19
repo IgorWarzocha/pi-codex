@@ -40,6 +40,14 @@ describe("SettingsManager", () => {
 		expect(manager.getSavedModelProfiles()).toEqual(profiles);
 	});
 
+	it("migrates removed Normal Mode settings to Code Mode", () => {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ executionMode: "normal" }));
+
+		const manager = SettingsManager.create(projectDir, agentDir);
+
+		expect(manager.getExecutionMode()).toBe("code");
+	});
+
 	describe("preserves externally added settings", () => {
 		it("should preserve enabledModels when changing thinking level", async () => {
 			// Create initial settings file

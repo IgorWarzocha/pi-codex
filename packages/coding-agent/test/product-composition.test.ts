@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { productExtensions } from "../src/product/extensions.ts";
+import { PRODUCT_MODEL_IDS } from "../src/product/models.ts";
 
 describe("Pi-Codex product composition", () => {
 	it("registers only the Codex provider by default", async () => {
@@ -14,6 +15,12 @@ describe("Pi-Codex product composition", () => {
 		});
 
 		expect(runtime.getProviders().map((provider) => provider.id)).toEqual(["openai-codex"]);
+		expect(
+			runtime
+				.getModels()
+				.map((model) => model.id)
+				.sort(),
+		).toEqual([...PRODUCT_MODEL_IDS].sort());
 	});
 
 	it("bundles only the native Pi-Codex extension", () => {

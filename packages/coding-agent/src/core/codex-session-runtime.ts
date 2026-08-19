@@ -63,7 +63,6 @@ export class CodexSessionRuntime {
 		const config = this.config();
 		this.compactionState = {
 			config,
-			executionMode: config.executionMode,
 		};
 	}
 
@@ -99,7 +98,6 @@ export class CodexSessionRuntime {
 	private refreshCompactionState(): void {
 		const config = this.config();
 		this.compactionState.config = config;
-		this.compactionState.executionMode = config.executionMode;
 		this.compactionState.activeProviderSystemPrompt = this.options.agent.state.systemPrompt;
 	}
 

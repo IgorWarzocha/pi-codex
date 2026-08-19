@@ -69,6 +69,10 @@
           "path": "packages.md"
         },
         {
+          "title": "Code Mode Custom Tools",
+          "path": "custom-tools.md"
+        },
+        {
           "title": "Custom Models",
           "path": "models.md"
         },

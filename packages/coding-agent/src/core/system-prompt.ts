@@ -3,7 +3,7 @@ import { getDefaultCodexRuntimeShell } from "../adapter/prompt/runtime-shell.ts"
 import { getReadmePath } from "../config.ts";
 import type { Skill } from "./skills.ts";
 
-export type CodexPromptMode = "normal" | "code" | "notebook";
+export type CodexPromptMode = "code" | "notebook";
 
 export interface BuildSystemPromptOptions {
 	/** Custom system prompt content. Pi-Codex runtime guidance is still appended. */
@@ -29,17 +29,6 @@ export interface BuildSystemPromptOptions {
 	/** Pre-loaded skills. */
 	skills?: Skill[];
 }
-
-const EXEC_SESSION_GUIDELINE =
-	"For unfinished exec_command sessions, use write_stdin with yield_time_ms near the command's expected remaining time and lengthen later waits";
-
-const NORMAL_CODEX_GUIDELINES = [
-	"Use exec_command for shell commands, file inspection, builds, and tests; prefer rg / rg --files for discovery and focused commands over truncation",
-	"Reserve tty=true for input or persistent processes",
-	"Use apply_patch for text-file changes, including creates/deletes/moves; split oversized patches",
-	EXEC_SESSION_GUIDELINE,
-	"Run independent tool calls in parallel when practical",
-];
 
 const CODE_MODE_GUIDELINES = [
 	"Use tools.exec_command for shell commands; prefer rg and rg --files",
@@ -68,8 +57,7 @@ const NOTEBOOK_MODE_GUIDELINES = [
 ];
 
 function buildGuidelines(mode: CodexPromptMode, additions: string[]): string[] {
-	const base =
-		mode === "notebook" ? NOTEBOOK_MODE_GUIDELINES : mode === "code" ? CODE_MODE_GUIDELINES : NORMAL_CODEX_GUIDELINES;
+	const base = mode === "notebook" ? NOTEBOOK_MODE_GUIDELINES : CODE_MODE_GUIDELINES;
 	const piPackageRoot = dirname(getReadmePath()).replace(/\\/g, "/");
 	return [
 		...new Set([
@@ -88,25 +76,43 @@ function appendProjectContext(prompt: string, contextFiles: Array<{ path: string
 	return `${prompt}\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n${files}\n\n</project_context>`;
 }
 
-function buildSkillsSection(skills: Skill[], mode: CodexPromptMode): string {
-	const visible = skills.filter((skill) => !skill.disableModelInvocation && skill.category === undefined);
-	if (visible.length === 0) return "";
+function buildSkillsSection(skills: Skill[], selectedTools: string[] | undefined): string {
+	const skillToolAvailable = selectedTools === undefined || selectedTools.includes("exec");
+	if (!skillToolAvailable) return "";
+	const visible = skills.filter((skill) => !skill.disableModelInvocation);
+	const eager = visible
+		.filter((skill) => skill.category === undefined)
+		.sort((left, right) => left.name.localeCompare(right.name));
+	const categories = [...new Set(visible.flatMap((skill) => (skill.category ? [skill.category] : [])))].sort();
+	if (eager.length === 0 && categories.length === 0) return "";
 	const lines = [
 		"<skills_instructions>",
 		"## Skills",
-		"Skill: local instructions in `SKILL.md` file",
-		"### Available skills",
-		...visible.map((skill) => `- ${skill.name}: ${skill.description} (file: ${skill.filePath})`),
+		"Skills are local instruction packages available through the native skills tool.",
+	];
+	if (eager.length > 0) {
+		lines.push(
+			"### Important skills",
+			...eager.map((skill) => `- ${skill.name}: ${skill.description.replace(/\s+/g, " ").trim()}`),
+		);
+	}
+	if (categories.length > 0) {
+		lines.push("### Categories", ...categories.map((category) => `- ${category}`));
+	}
+	lines.push(
+		"### Skills tool",
+		"- `list`: list important and categorized skills",
+		"- `list <category>...`: list skills in one or more categories",
+		"- `read <exact-skill-name>`: read one skill and its package paths",
+		'- In Code or Notebook Mode, call `tools.skills("...")`',
 		"### How to use skills",
 		"- Use skill when user names it (`$SkillName` or plain text) or request clearly matches its description",
 		"- Use the minimal required set of skills. If multiple apply, use them together and state the order briefly",
-		mode === "normal"
-			? "- For each selected skill, open its `SKILL.md`, resolve relative paths from the skill directory first, load only the files you need, and prefer existing scripts/assets/templates over recreating them"
-			: '- For each selected skill, use `tools.skills("read <exact-skill-name>")`; it returns the body and safe absolute package paths',
+		"- Read each selected skill before following it; resolve referenced files from the package paths returned by the tool",
 		"### Fallback",
 		"- If skill is missing or path cannot be read, say so briefly and continue with best fallback approach",
 		"</skills_instructions>",
-	];
+	);
 	return lines.join("\n");
 }
 
@@ -120,7 +126,7 @@ function resolveShell(configuredShell: string | undefined): string {
 
 /** Build the native Pi-Codex prompt without constructing or rewriting Pi's stock prompt. */
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-	const mode = options.mode ?? "normal";
+	const mode = options.mode ?? "code";
 	const guidelines = buildGuidelines(mode, options.promptGuidelines ?? []);
 	const sections: string[] = [];
 	if (options.customPrompt?.trim()) sections.push(options.customPrompt.trim());
@@ -129,7 +135,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	let prompt = sections.join("\n\n");
 	prompt = appendProjectContext(prompt, options.contextFiles ?? []);
-	const skills = buildSkillsSection(options.skills ?? [], mode);
+	const skills = buildSkillsSection(options.skills ?? [], options.selectedTools);
 	if (skills) prompt += `\n\n${skills}`;
 	if (options.codeModeToolsPrompt?.trim()) prompt += `\n\n${options.codeModeToolsPrompt.trim()}`;
 	const shell = resolveShell(options.shell);

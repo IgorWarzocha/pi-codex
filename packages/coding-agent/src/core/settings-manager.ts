@@ -137,7 +137,7 @@ export interface Settings {
 	defaultContextWindow?: number;
 	defaultThinkingLevel?: ThinkingLevel;
 	savedModelProfiles?: SavedModelProfile[];
-	executionMode?: "normal" | "code" | "notebook"; // default: "code" for Responses Lite-capable Pi-Codex models
+	executionMode?: "code" | "notebook"; // default: "code"
 	notebook?: NotebookSettings;
 	piCodex?: PiCodexSettings;
 	transport?: TransportSetting; // default: "auto"
@@ -434,6 +434,9 @@ export class SettingsManager {
 
 	/** Migrate old settings format to new format */
 	private static migrateSettings(settings: Record<string, unknown>): Settings {
+		// Normal Mode was removed from Pi-Codex. Preserve the closest execution model.
+		if (settings.executionMode === "normal") settings.executionMode = "code";
+
 		// Migrate queueMode -> steeringMode
 		if ("queueMode" in settings && !("steeringMode" in settings)) {
 			settings.steeringMode = settings.queueMode;
@@ -834,11 +837,11 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getExecutionMode(): "normal" | "code" | "notebook" {
+	getExecutionMode(): "code" | "notebook" {
 		return this.settings.executionMode ?? "code";
 	}
 
-	setExecutionMode(mode: "normal" | "code" | "notebook"): void {
+	setExecutionMode(mode: "code" | "notebook"): void {
 		this.globalSettings.executionMode = mode;
 		this.markModified("executionMode");
 		this.save();

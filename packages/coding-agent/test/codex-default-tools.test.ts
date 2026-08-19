@@ -44,7 +44,7 @@ describe("Pi-Codex default tools", () => {
 			await createAgentSession({
 				cwd: tempDir,
 				agentDir,
-				model: getModel("anthropic", "claude-sonnet-4-5")!,
+				model: getModel("openai-codex", "gpt-5.6-luna")!,
 				settingsManager,
 				sessionManager: SessionManager.inMemory(tempDir),
 				resourceLoader,
@@ -63,6 +63,9 @@ describe("Pi-Codex default tools", () => {
 				.sort(),
 		).toEqual([...ALL_CODEX_TOOL_NAMES].sort());
 		expect(session.getActiveToolNames()).toEqual(DEFAULT_CODEX_TOOL_NAMES);
+		expect(session.getActiveToolNames()).toContain("exec");
+		expect(session.getActiveToolNames()).not.toContain("read");
+		expect(session.getAllTools().map((tool) => tool.name)).not.toContain("exec_command");
 		expect(session.systemPrompt).not.toContain("Available tools:");
 		session.dispose();
 	});
@@ -101,12 +104,12 @@ describe("Pi-Codex default tools", () => {
 	});
 
 	it("preserves explicit allowlist and suppression options", async () => {
-		const allowlisted = await createSession({ tools: ["exec_command", "apply_patch"] });
-		expect(allowlisted.getActiveToolNames()).toEqual(["exec_command", "apply_patch"]);
+		const allowlisted = await createSession({ tools: ["exec"] });
+		expect(allowlisted.getActiveToolNames()).toEqual(["exec"]);
 		allowlisted.dispose();
 
-		const excluded = await createSession({ excludeTools: ["imagegen"] });
-		expect(excluded.getActiveToolNames()).toEqual(DEFAULT_CODEX_TOOL_NAMES.filter((name) => name !== "imagegen"));
+		const excluded = await createSession({ excludeTools: ["wait"] });
+		expect(excluded.getActiveToolNames()).toEqual(DEFAULT_CODEX_TOOL_NAMES.filter((name) => name !== "wait"));
 		excluded.dispose();
 
 		const toolLess = await createSession({ noTools: "all" });
@@ -120,7 +123,7 @@ describe("Pi-Codex default tools", () => {
 		const { session } = await createAgentSessionFromServices({
 			services,
 			sessionManager: SessionManager.inMemory(tempDir),
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: getModel("openai-codex", "gpt-5.6-luna")!,
 		});
 
 		expect(session.getActiveToolNames()).toEqual(DEFAULT_CODEX_TOOL_NAMES);

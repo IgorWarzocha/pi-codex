@@ -1,36 +1,21 @@
-import { type Api, type Model, supportsResponsesLiteModel } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { EventBus } from "../core/event-bus.ts";
 import type { ToolDefinition } from "../core/extensions/types.ts";
 import type { Skill } from "../core/skills.ts";
-import { createApplyPatchTool, isApplyPatchToolDetails } from "./apply-patch/tool.ts";
 import { createNativeCodeModeTools } from "./code-mode/native-tools.ts";
 import { createNotebookTool } from "./code-mode/notebook-tool.ts";
 import { createPublicCodeModeTools } from "./code-mode/public-tools.ts";
 import { CodeModeRuntime } from "./code-mode/runtime.ts";
 import { createExecCommandTracker } from "./exec/command-state.ts";
-import { createExecCommandTool } from "./exec/command-tool.ts";
 import { createExecSessionManager } from "./exec/session-manager.ts";
-import { createWriteStdinTool } from "./exec/write-stdin-tool.ts";
-import { createImageGenerationTool } from "./imagegen/tool.ts";
 import { getBundledToolBinaryPath } from "./native/binary.ts";
-import { createViewImageTool } from "./view-image/tool.ts";
-import { createWebSearchTool } from "./web-run/tool.ts";
-
-export const NORMAL_CODEX_TOOL_NAMES = [
-	"exec_command",
-	"write_stdin",
-	"apply_patch",
-	"view_image",
-	"web_run",
-	"imagegen",
-] as const;
 
 export const CODE_MODE_TOOL_NAMES = ["exec", "wait"] as const;
 export const NOTEBOOK_MODE_TOOL_NAMES = ["exec", "wait", "notebook"] as const;
-export const DEFAULT_CODEX_TOOL_NAMES = NORMAL_CODEX_TOOL_NAMES;
-export const ALL_CODEX_TOOL_NAMES = [...NORMAL_CODEX_TOOL_NAMES, ...NOTEBOOK_MODE_TOOL_NAMES] as const;
+export const DEFAULT_CODEX_TOOL_NAMES = CODE_MODE_TOOL_NAMES;
+export const ALL_CODEX_TOOL_NAMES = NOTEBOOK_MODE_TOOL_NAMES;
 
-export type CodexExecutionMode = "normal" | "code" | "notebook";
+export type CodexExecutionMode = "code" | "notebook";
 export const PI_CODEX_EXEC_SESSIONS_CHANNEL = "pi-codex:exec-sessions";
 
 export interface CodexToolRuntimeOptions {
@@ -75,11 +60,10 @@ function eraseToolDefinition(definition: unknown): ToolDefinition {
 }
 
 export function resolveCodexExecutionMode(
-	model: Model<Api> | undefined,
+	_model: Model<Api> | undefined,
 	requestedMode: CodexExecutionMode,
 ): CodexExecutionMode {
-	if (requestedMode === "normal") return "normal";
-	return model?.api === "openai-codex-responses" && supportsResponsesLiteModel(model) ? requestedMode : "normal";
+	return requestedMode;
 }
 
 export function createCodexToolRuntime(options: CodexToolRuntimeOptions): CodexToolRuntime {
@@ -101,36 +85,6 @@ export function createCodexToolRuntime(options: CodexToolRuntimeOptions): CodexT
 		getNotebookOptions: () => ({ agentDir: options.agentDir, ...options.getNotebookOptions() }),
 		onPromotedCustomToolsAdded: options.onPromotedCustomToolsAdded,
 	});
-	const normalDefinitions: Record<string, ToolDefinition> = {
-		exec_command: eraseToolDefinition(createExecCommandTool(tracker, sessions, { showOutputWhenCollapsed: true })),
-		write_stdin: eraseToolDefinition(createWriteStdinTool(sessions, { showOutputWhenCollapsed: true })),
-		apply_patch: eraseToolDefinition(
-			createApplyPatchTool({
-				customRustBinariesDir: options.getPiCodexOptions().customRustBinariesDir,
-				showDiffWhenCollapsed: true,
-			}),
-		),
-		view_image: eraseToolDefinition(
-			createViewImageTool({
-				customRustBinariesDir: options.getPiCodexOptions().customRustBinariesDir,
-				describeForTextModels: options.getPiCodexOptions().describeImagesForTextModels,
-				descriptionModel: options.getPiCodexOptions().webSearchModel,
-			}),
-		),
-		web_run: eraseToolDefinition(
-			createWebSearchTool("web_run", {
-				allowCodexProviderFallback: true,
-				model: () => options.getPiCodexOptions().webSearchModel ?? "gpt-5.6-luna",
-				customRustBinariesDir: options.getPiCodexOptions().customRustBinariesDir,
-			}),
-		),
-		imagegen: eraseToolDefinition(
-			createImageGenerationTool({
-				allowCodexProviderFallback: true,
-				customRustBinariesDir: options.getPiCodexOptions().customRustBinariesDir,
-			}),
-		),
-	};
 	const codeDefinitions = Object.fromEntries(
 		createPublicCodeModeTools(codeMode).map((definition) => [definition.name, definition]),
 	);
@@ -138,13 +92,8 @@ export function createCodexToolRuntime(options: CodexToolRuntimeOptions): CodexT
 	let shutdownPromise: Promise<void> | undefined;
 
 	return {
-		definitions: { ...normalDefinitions, ...codeDefinitions },
-		toolNames: (mode) =>
-			mode === "notebook"
-				? NOTEBOOK_MODE_TOOL_NAMES
-				: mode === "code"
-					? CODE_MODE_TOOL_NAMES
-					: NORMAL_CODEX_TOOL_NAMES,
+		definitions: codeDefinitions,
+		toolNames: (mode) => (mode === "notebook" ? NOTEBOOK_MODE_TOOL_NAMES : CODE_MODE_TOOL_NAMES),
 		resolveExecutionMode: resolveCodexExecutionMode,
 		activateExecutionMode: (mode) => codeMode.setExecutionKind(mode === "notebook" ? "notebook" : "code"),
 		bindEvents: (events) => {
@@ -170,8 +119,7 @@ export function createCodexToolRuntime(options: CodexToolRuntimeOptions): CodexT
 		},
 		resetExplorationGroup: () => tracker.resetExplorationGroup(),
 		isErrorResult: (toolName, details) =>
-			(toolName === "apply_patch" && isApplyPatchToolDetails(details) && details.status === "partial_failure") ||
-			(toolName === "exec" && Boolean(details && typeof details === "object" && "scriptError" in details)),
+			toolName === "exec" && Boolean(details && typeof details === "object" && "scriptError" in details),
 		shutdown: () => {
 			if (!shutdownPromise)
 				shutdownPromise = (async () => {

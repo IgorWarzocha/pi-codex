@@ -17,10 +17,12 @@
 - Added Notebook Mode with a persistent Deno/TypeScript kernel, durable project and session checkpoints, named profiles, lifecycle controls, journals, diagnostics, and native tool delegation.
 - Added native realtime voice, dictation, GipPity LAN control, Responses Compaction V2, Codex usage and reset credits, cache diagnostics and keepalive, background shell controls, and their Pi-Codex settings.
 - Added native nested `AGENTS.md` discovery when file reads and read-like shell or Code Mode tools enter a more specific repository scope.
-- Added native Code and Notebook Mode skill listing and reading, categorized lazy skills, per-turn rescans, and developer updates for newly available eager skills.
+- Added native skill listing and reading in Code and Notebook Mode, categorized lazy skills, per-turn rescans, path-free prompt announcements, and developer updates for newly available eager skills.
 
 ### Changed
 
+- Moved Code Mode custom-tool authoring documentation into the grouped Pi documentation root and removed its dedicated system-prompt pointer.
+- Removed Normal Mode and restricted the built-in Pi-Codex model surface to GPT-5.6 Luna, Terra, and Sol.
 - Startup instruction discovery now loads only the Pi-Codex global context file and the file directly in the current working directory; nested context discovery follows native `exec_command` reads instead of legacy Pi file tools.
 - Pi-Codex now keeps its normal Pi directory structure under `~/.pi-codex/agent`, uses its `skills/` as the only default global skill root, supports `PI_CODEX_HOME`, and offers a one-time import of compatible stock Pi preferences without sharing authentication, sessions, models, extensions, or packages.
 - Reworked `/settings` into guided General, Codex, Voice, Usage, Display, Terminal, and Advanced tabs with stable pagination, descriptions, columns, native Codex controls, subscription limits, and banked resets; `/usage` opens the Usage tab directly.

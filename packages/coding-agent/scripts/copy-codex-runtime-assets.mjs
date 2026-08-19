@@ -27,12 +27,9 @@ const shellDirectory = join(outputRoot, "shell");
 mkdirSync(shellDirectory, { recursive: true });
 copyFileSync(join(packageRoot, "src", "shell", "tree-sitter-bash.wasm"), join(shellDirectory, "tree-sitter-bash.wasm"));
 
-const codeModeDirectory = join(outputRoot, "tools", "code-mode");
-mkdirSync(codeModeDirectory, { recursive: true });
-copyFileSync(
-	join(packageRoot, "src", "tools", "code-mode", "CUSTOM-TOOLS.md"),
-	join(codeModeDirectory, "CUSTOM-TOOLS.md"),
-);
+const docsDirectory = join(outputRoot, "docs");
+mkdirSync(docsDirectory, { recursive: true });
+copyFileSync(join(packageRoot, "docs", "custom-tools.md"), join(docsDirectory, "custom-tools.md"));
 
 const voiceDirectory = join(outputRoot, "voice");
 mkdirSync(join(voiceDirectory, "lan"), { recursive: true });

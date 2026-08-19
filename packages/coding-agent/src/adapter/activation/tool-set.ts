@@ -16,7 +16,7 @@ export function buildExtraToolsOnlyStatusText(tools: string[], theme?: StatusThe
 
 export function buildStatusText(
 	options: {
-		mode?: "normal" | "code" | "notebook" | undefined;
+		mode?: "code" | "notebook" | undefined;
 		verbosity?: string | undefined;
 		webSearch?: boolean | undefined;
 		imageGeneration?: boolean | undefined;

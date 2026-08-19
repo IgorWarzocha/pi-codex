@@ -84,7 +84,7 @@ export interface SettingsConfig {
 	steeringMode: "all" | "one-at-a-time";
 	followUpMode: "all" | "one-at-a-time";
 	transport: Transport;
-	executionMode: "normal" | "code" | "notebook";
+	executionMode: "code" | "notebook";
 	piCodex: PiCodexSettings;
 	httpIdleTimeoutMs: number;
 	thinkingLevel: ThinkingLevel;
@@ -123,7 +123,7 @@ export interface SettingsCallbacks {
 	onSteeringModeChange: (mode: "all" | "one-at-a-time") => void;
 	onFollowUpModeChange: (mode: "all" | "one-at-a-time") => void;
 	onTransportChange: (transport: Transport) => void;
-	onExecutionModeChange: (mode: "normal" | "code" | "notebook") => void;
+	onExecutionModeChange: (mode: "code" | "notebook") => void;
 	onPiCodexChange: (settings: PiCodexSettings) => void;
 	onHttpIdleTimeoutMsChange: (timeoutMs: number) => void;
 	onThinkingLevelChange: (level: ThinkingLevel) => void;
@@ -563,10 +563,9 @@ export class SettingsSelectorComponent extends Container {
 			{
 				id: "execution-mode",
 				label: "Execution mode",
-				description:
-					"Notebook keeps a persistent Deno/TypeScript kernel; Code composes tools in V8; Normal exposes tools directly",
+				description: "Notebook keeps a persistent Deno/TypeScript kernel; Code runs each cell independently in V8",
 				currentValue: config.executionMode,
-				values: ["notebook", "code", "normal"],
+				values: ["notebook", "code"],
 			},
 			{
 				id: "codex-fast",
@@ -981,7 +980,7 @@ export class SettingsSelectorComponent extends Container {
 					callbacks.onTransportChange(newValue as Transport);
 					break;
 				case "execution-mode":
-					callbacks.onExecutionModeChange(newValue as "normal" | "code" | "notebook");
+					callbacks.onExecutionModeChange(newValue as "code" | "notebook");
 					break;
 				case "codex-fast":
 					currentPiCodex = {
