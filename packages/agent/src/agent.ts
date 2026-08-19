@@ -279,6 +279,19 @@ export class Agent {
 		);
 	}
 
+	/** Request settings shared by normal and shadow agent turns. */
+	getProviderRequestOptions(): SimpleStreamOptions {
+		return {
+			reasoning: this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel,
+			sessionId: this.sessionId,
+			onPayload: this.onPayload,
+			onResponse: this.onResponse,
+			transport: this.transport,
+			thinkingBudgets: this.thinkingBudgets,
+			maxRetryDelayMs: this.maxRetryDelayMs,
+		};
+	}
+
 	/** Controls how queued steering messages are drained. */
 	set steeringMode(mode: QueueMode) {
 		this.steeringQueue.mode = mode;
@@ -464,14 +477,8 @@ export class Agent {
 		let skipInitialSteeringPoll = options.skipInitialSteeringPoll === true;
 		const shouldStopAfterTurn = this.shouldStopAfterTurn;
 		return {
+			...this.getProviderRequestOptions(),
 			model: this._state.model,
-			reasoning: this._state.thinkingLevel === "off" ? undefined : this._state.thinkingLevel,
-			sessionId: this.sessionId,
-			onPayload: this.onPayload,
-			onResponse: this.onResponse,
-			transport: this.transport,
-			thinkingBudgets: this.thinkingBudgets,
-			maxRetryDelayMs: this.maxRetryDelayMs,
 			toolExecution: this.toolExecution,
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,

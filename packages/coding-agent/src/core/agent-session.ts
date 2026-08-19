@@ -54,6 +54,7 @@ import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import { CodexSessionRuntime } from "./codex-session-runtime.ts";
+import { registerBranchSummaryRuntime } from "./compaction/branch-summary-runtime.ts";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
@@ -3426,8 +3427,33 @@ export class AgentSession {
 
 		// Set up abort controller for summarization
 		this._branchSummaryAbortController = new AbortController();
+		let unregisterBranchSummaryRuntime: (() => void) | undefined;
 
 		try {
+			if (options.summarize && entriesToSummarize.length > 0) {
+				const model = this.model!;
+				const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
+				const sourceContext = await this.agent.buildProviderContext(
+					{
+						systemPrompt: this.agent.state.systemPrompt,
+						messages: this.sessionManager.buildSessionContext().messages,
+						tools: this.agent.state.tools.slice(),
+					},
+					this._branchSummaryAbortController.signal,
+				);
+				unregisterBranchSummaryRuntime = registerBranchSummaryRuntime(this._branchSummaryAbortController.signal, {
+					model: requestModel,
+					apiKey,
+					headers,
+					env,
+					streamFn: this.agent.streamFunction,
+					sourceContext,
+					requestOptions: this.agent.getProviderRequestOptions(),
+					retry: this.settingsManager.getRetrySettings(),
+					callbacks: this._summarizationRetryCallbacks({ source: "branchSummary" }),
+				});
+			}
+
 			let extensionSummary: { summary: string; details?: unknown; usage?: Usage } | undefined;
 			let fromExtension = false;
 
@@ -3465,21 +3491,13 @@ export class AgentSession {
 			let summaryDetails: unknown;
 			let summaryUsage: Usage | undefined;
 			if (options.summarize && entriesToSummarize.length > 0 && !extensionSummary) {
-				const model = this.model!;
-				const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
 				const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
 				const result = await generateBranchSummary(entriesToSummarize, {
-					model: requestModel,
-					apiKey,
-					headers,
-					env,
+					model: this.model!,
 					signal: this._branchSummaryAbortController.signal,
 					customInstructions,
 					replaceInstructions,
 					reserveTokens: branchSummarySettings.reserveTokens,
-					streamFn: this.agent.streamFunction,
-					retry: this.settingsManager.getRetrySettings(),
-					callbacks: this._summarizationRetryCallbacks({ source: "branchSummary" }),
 				});
 				if (result.aborted) {
 					return { cancelled: true, aborted: true };
@@ -3566,6 +3584,7 @@ export class AgentSession {
 
 			return { editorText, cancelled: false, summaryEntry };
 		} finally {
+			unregisterBranchSummaryRuntime?.();
 			this._branchSummaryAbortController = undefined;
 		}
 	}

@@ -645,17 +645,17 @@ export async function completeSummarization(
 	streamFn?: StreamFn,
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
+	behavior: { preserveToolChoice?: boolean } = {},
 ): Promise<AssistantMessage> {
-	// Standalone one-off summaries default to no prompt caching. Cache-friendly callers
-	// explicitly request short retention so providers can reuse the active prefix.
-	// Callers without a session ID, including standalone branch summaries, receive a fresh routing ID.
+	// Session-bound summaries retain the active cache lane. Standalone summaries
+	// stay isolated behind a fresh routing ID unless their caller opts into one.
 	const requestOptions: SimpleStreamOptions = {
 		...options,
-		cacheRetention: options.cacheRetention ?? "none",
+		cacheRetention: options.cacheRetention ?? (options.sessionId ? "short" : "none"),
 		sessionId: options.sessionId ?? uuidv7(),
-		// Anthropic invalidates the messages cache when tool_choice changes. Its 20-content-block lookup
-		// can still reuse an earlier user-message checkpoint, but long tool-heavy turns may need reprocessing.
-		toolChoice: "none",
+		// Standalone summaries disable tools. Shadow branch summaries preserve the active
+		// choice so the provider request remains an extension of the cached agent turn.
+		toolChoice: behavior.preserveToolChoice ? (options.toolChoice ?? "none") : "none",
 	};
 	const produce = async (): Promise<AssistantMessage> =>
 		streamFn

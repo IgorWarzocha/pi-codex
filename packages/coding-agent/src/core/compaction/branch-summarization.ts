@@ -7,7 +7,9 @@
 
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import {
+	type Context,
 	contentText,
+	type Message,
 	type Model,
 	type RetryCallbacks,
 	type RetryPolicy,
@@ -21,6 +23,7 @@ import {
 	createCustomMessage,
 } from "../messages.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
+import { getBranchSummaryRuntime } from "./branch-summary-runtime.ts";
 import { completeSummarization, estimateTokens } from "./compaction.ts";
 import {
 	computeFileLists,
@@ -29,7 +32,6 @@ import {
 	type FileOperations,
 	formatFileOperations,
 	SUMMARIZATION_SYSTEM_PROMPT,
-	serializeConversation,
 } from "./utils.ts";
 
 // ============================================================================
@@ -88,6 +90,10 @@ export interface GenerateBranchSummaryOptions {
 	reserveTokens?: number;
 	/** Optional session stream function. Used to preserve SDK request behavior without mutating agent state. */
 	streamFn?: StreamFn;
+	/** Exact active provider context. When present, summarization is an appended shadow turn. */
+	sourceContext?: Context;
+	/** Active request settings copied from the normal agent turn. */
+	requestOptions?: SimpleStreamOptions;
 	/** Retry policy for transient summarization errors. Reuses coding-agent's `settings.retry`. */
 	retry?: RetryPolicy;
 	/** Optional callbacks for retry reporting (e.g. TUI retry indicators). */
@@ -161,8 +167,6 @@ export function collectEntriesForBranchSummary(
 function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 	switch (entry.type) {
 		case "message":
-			// Skip tool results - context is in assistant's tool call
-			if (entry.message.role === "toolResult") return undefined;
 			return entry.message;
 
 		case "custom_message":
@@ -260,6 +264,9 @@ Summary of that exploration:
 
 `;
 
+const BRANCH_SUMMARY_CONTROL =
+	"This is a hidden tree-navigation turn. Do not continue the work and do not call tools. Summarize only the branch being left; treat earlier retained conversation as background rather than work to repeat.";
+
 const BRANCH_SUMMARY_PROMPT = `Create a structured summary of this conversation branch for context when returning later.
 
 Use this EXACT format:
@@ -289,6 +296,19 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
+function describeBranchStart(message: Message | undefined): string | undefined {
+	if (!message) return undefined;
+	let text = contentText(message.content, "").trim();
+	if (!text && message.role === "assistant") {
+		text = message.content
+			.filter((block) => block.type === "toolCall")
+			.map((block) => `${block.name}(${JSON.stringify(block.arguments)})`)
+			.join("; ");
+	}
+	if (!text) return undefined;
+	return JSON.stringify({ role: message.role, text: text.slice(0, 1000) });
+}
+
 /**
  * Generate a summary of abandoned branch entries.
  *
@@ -299,6 +319,7 @@ export async function generateBranchSummary(
 	entries: SessionEntry[],
 	options: GenerateBranchSummaryOptions,
 ): Promise<BranchSummaryResult> {
+	const runtime = getBranchSummaryRuntime(options.signal);
 	const {
 		model,
 		apiKey,
@@ -309,24 +330,24 @@ export async function generateBranchSummary(
 		replaceInstructions,
 		reserveTokens = 16384,
 		streamFn,
+		sourceContext,
+		requestOptions,
 		retry,
 		callbacks,
-	} = options;
+	} = runtime ? { ...options, ...runtime } : options;
 
 	// Token budget = context window minus reserved space for prompt + response
 	const contextWindow = model.contextWindow || 128000;
 	const tokenBudget = contextWindow - reserveTokens;
 
-	const { messages, fileOps } = prepareBranchEntries(entries, tokenBudget);
+	const { messages, fileOps } = prepareBranchEntries(entries, sourceContext ? 0 : tokenBudget);
 
 	if (messages.length === 0) {
 		return { summary: "No content to summarize" };
 	}
 
-	// Transform to LLM-compatible messages, then serialize to text
-	// Serialization prevents the model from treating it as a conversation to continue
+	// Keep the real provider message structure instead of flattening or truncating it.
 	const llmMessages = convertToLlm(messages);
-	const conversationText = serializeConversation(llmMessages);
 
 	// Build prompt
 	let instructions: string;
@@ -337,12 +358,16 @@ export async function generateBranchSummary(
 	} else {
 		instructions = BRANCH_SUMMARY_PROMPT;
 	}
-	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${instructions}`;
-
+	instructions = `${BRANCH_SUMMARY_CONTROL}\n\n${instructions}`;
+	const branchStart = sourceContext ? describeBranchStart(llmMessages[0]) : undefined;
+	if (branchStart) {
+		instructions += `\n\nThe abandoned suffix contains ${llmMessages.length} model-visible messages and begins with this message descriptor. Summarize that suffix; do not summarize the retained prefix before it:\n${branchStart}`;
+	}
 	const summarizationMessages = [
+		...(sourceContext?.messages ?? llmMessages),
 		{
-			role: "user" as const,
-			content: [{ type: "text" as const, text: promptText }],
+			role: "developer" as const,
+			content: [{ type: "text" as const, text: instructions }],
 			timestamp: Date.now(),
 		},
 	];
@@ -351,9 +376,28 @@ export async function generateBranchSummary(
 	// request behavior (timeouts, retries, attribution headers) stays consistent
 	// without running through agent state/events. Retried via completeSummarization
 	// so transient stream drops reuse the configured retry policy.
-	const context = { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages };
-	const requestOptions: SimpleStreamOptions = { apiKey, headers, env, signal, maxTokens: 2048 };
-	const response = await completeSummarization(model, context, requestOptions, streamFn, retry, callbacks);
+	const context = {
+		systemPrompt: sourceContext?.systemPrompt ?? SUMMARIZATION_SYSTEM_PROMPT,
+		messages: summarizationMessages,
+		...(sourceContext?.tools ? { tools: sourceContext.tools } : {}),
+	};
+	const completionOptions: SimpleStreamOptions = {
+		...requestOptions,
+		apiKey,
+		headers,
+		env,
+		signal,
+		...(sourceContext
+			? { cacheRetention: "short" as const, toolChoice: "auto" as const }
+			: {
+					maxTokens: 2048,
+					cacheRetention: "short" as const,
+					sessionId: "pi-branch-summary",
+				}),
+	};
+	const response = await completeSummarization(model, context, completionOptions, streamFn, retry, callbacks, {
+		preserveToolChoice: sourceContext !== undefined,
+	});
 
 	// Check if aborted or errored
 	if (response.stopReason === "aborted") {

@@ -142,6 +142,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	const agent = new Agent({
 		getApiKey: () => (withConfiguredAuth ? "faux-key" : undefined),
 		streamFn: streamSimple,
+		sessionId: sessionManager.getSessionId(),
 		initialState: {
 			model,
 			systemPrompt: options.systemPrompt ?? "You are a test assistant.",

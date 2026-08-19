@@ -17,9 +17,22 @@ describe("issue #6324 branch summary ambient auth", () => {
 		harnesses.push(harness);
 
 		let streamCallCount = 0;
-		harness.session.agent.streamFunction = (model, _context, options) => {
+		harness.session.agent.streamFunction = (model, context, options) => {
 			streamCallCount++;
 			expect(options?.apiKey).toBeUndefined();
+			expect(options).toMatchObject({
+				cacheRetention: "short",
+				sessionId: harness.sessionManager.getSessionId(),
+				toolChoice: "auto",
+			});
+			expect(context.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
+			expect(context.messages.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+				"user",
+				"assistant",
+				"developer",
+			]);
 
 			const stream = createAssistantMessageEventStream();
 			stream.push({
@@ -58,5 +71,6 @@ describe("issue #6324 branch summary ambient auth", () => {
 		expect(result.summaryEntry?.type).toBe("branch_summary");
 		expect(result.summaryEntry?.summary).toContain("branch summary text");
 		expect(result.summaryEntry?.usage?.cost.total).toBe(0.25);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "message")).toHaveLength(4);
 	});
 });

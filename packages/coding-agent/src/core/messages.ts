@@ -169,7 +169,7 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 				}
 				case "branchSummary":
 					return {
-						role: "user",
+						role: "developer",
 						content: [{ type: "text" as const, text: BRANCH_SUMMARY_PREFIX + m.summary + BRANCH_SUMMARY_SUFFIX }],
 						timestamp: m.timestamp,
 					};
