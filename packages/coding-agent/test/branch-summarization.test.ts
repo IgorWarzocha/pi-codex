@@ -107,7 +107,10 @@ describe("branch summarization", () => {
 		expect(requestContext?.messages.slice(0, -1)).toEqual(context.messages);
 	});
 
-	it("clamps the branch summary output cap to the model limit", async () => {
+	it.each([
+		{ name: "model limit", maxTokens: 1024, reserveTokens: 16384 },
+		{ name: "reserved headroom", maxTokens: 8192, reserveTokens: 1024 },
+	])("clamps the branch summary output cap to the $name", async ({ maxTokens, reserveTokens }) => {
 		let requestOptions: SimpleStreamOptions | undefined;
 		const streamFn: StreamFn = (_model, _context, options) => {
 			requestOptions = options;
@@ -120,31 +123,10 @@ describe("branch summarization", () => {
 
 		await generateBranchSummary(entries, {
 			requestConfig: { context: { messages: [{ role: "user", content: "Abandoned request", timestamp: 1 }] } },
-			model: { ...model, maxTokens: 1024 },
+			model: { ...model, maxTokens },
+			reserveTokens,
 			signal: new AbortController().signal,
 			streamFn,
-		});
-
-		expect(requestOptions?.maxTokens).toBe(1024);
-	});
-
-	it("keeps the branch summary output cap within the reserved headroom", async () => {
-		let requestOptions: SimpleStreamOptions | undefined;
-		const streamFn: StreamFn = (_model, _context, options) => {
-			requestOptions = options;
-			const stream = createAssistantMessageEventStream();
-			queueMicrotask(() =>
-				stream.push({ type: "done", reason: "stop", message: response([{ type: "text", text: "summary" }]) }),
-			);
-			return stream;
-		};
-
-		await generateBranchSummary(entries, {
-			requestConfig: { context: { messages: [{ role: "user", content: "Abandoned request", timestamp: 1 }] } },
-			model,
-			signal: new AbortController().signal,
-			streamFn,
-			reserveTokens: 1024,
 		});
 
 		expect(requestOptions?.maxTokens).toBe(1024);

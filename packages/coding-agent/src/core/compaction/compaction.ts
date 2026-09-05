@@ -558,21 +558,9 @@ export function createSummarizationOptions(
 	env: Record<string, string> | undefined,
 	signal: AbortSignal | undefined,
 	thinkingLevel: ThinkingLevel | undefined,
-	requestConfig: SummarizationRequestConfig,
+	{ context: _context, ...routing }: SummarizationRequestConfig,
 ): SimpleStreamOptions {
-	const options: SimpleStreamOptions = {
-		maxTokens,
-		signal,
-		apiKey,
-		headers,
-		env,
-		sessionId: requestConfig.sessionId,
-		transport: requestConfig.transport,
-		onPayload: requestConfig.onPayload,
-		onResponse: requestConfig.onResponse,
-		thinkingBudgets: requestConfig.thinkingBudgets,
-		maxRetryDelayMs: requestConfig.maxRetryDelayMs,
-	};
+	const options: SimpleStreamOptions = { ...routing, maxTokens, signal, apiKey, headers, env };
 	if (model.reasoning && thinkingLevel && thinkingLevel !== "off") {
 		options.reasoning = thinkingLevel;
 	}
@@ -617,40 +605,8 @@ export interface SummarizationRequestConfig {
  * Generate a summary of the conversation using the LLM.
  * If previousSummary is provided, uses the update prompt to merge.
  */
-export async function generateSummary(
-	currentMessages: AgentMessage[],
-	requestConfig: SummarizationRequestConfig,
-	model: Model<any>,
-	reserveTokens: number,
-	apiKey: string | undefined,
-	headers?: Record<string, string>,
-	signal?: AbortSignal,
-	customInstructions?: string,
-	previousSummary?: string,
-	thinkingLevel?: ThinkingLevel,
-	streamFn?: StreamFn,
-	env?: Record<string, string>,
-	retry?: RetryPolicy,
-	callbacks?: RetryCallbacks,
-): Promise<string> {
-	return (
-		await generateSummaryWithUsage(
-			currentMessages,
-			requestConfig,
-			model,
-			reserveTokens,
-			apiKey,
-			headers,
-			signal,
-			customInstructions,
-			previousSummary,
-			thinkingLevel,
-			streamFn,
-			env,
-			retry,
-			callbacks,
-		)
-	).text;
+export async function generateSummary(...args: Parameters<typeof generateSummaryWithUsage>): Promise<string> {
+	return (await generateSummaryWithUsage(...args)).text;
 }
 
 /** Generate or update a conversation summary and return its provider usage. */

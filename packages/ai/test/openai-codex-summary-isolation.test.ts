@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { closeOpenAICodexWebSocketSessions, streamSimple } from "../src/api/openai-codex-responses.ts";
-import type { Context, Model } from "../src/types.ts";
+import { getModel } from "../src/compat.ts";
+import type { Context } from "../src/types.ts";
 
 afterEach(() => {
 	closeOpenAICodexWebSocketSessions();
@@ -43,18 +44,7 @@ it("keeps summary routing but leaves the main cached websocket continuation unto
 		}
 	}
 	vi.stubGlobal("WebSocket", MockWebSocket);
-	const model: Model<"openai-codex-responses"> = {
-		id: "gpt-5.1-codex",
-		name: "Codex",
-		api: "openai-codex-responses",
-		provider: "openai-codex",
-		baseUrl: "https://chatgpt.com/backend-api",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 400000,
-		maxTokens: 128000,
-	};
+	const model = getModel("openai-codex", "gpt-5.5");
 	const payload = Buffer.from(
 		JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "test" } }),
 	).toString("base64");
