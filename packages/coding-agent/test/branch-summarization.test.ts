@@ -1,6 +1,7 @@
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
+	type Context,
 	createAssistantMessageEventStream,
 	fauxAssistantMessage,
 	type Model,
@@ -8,6 +9,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { generateBranchSummary } from "../src/core/compaction/index.ts";
+import { convertToLlm } from "../src/core/messages.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
 
 const model: Model<"anthropic-messages"> = {
@@ -44,9 +46,44 @@ function response(content: AssistantMessage["content"]): AssistantMessage {
 }
 
 describe("branch summarization", () => {
-	it("does not override tool choice for branch summaries", async () => {
+	it("keeps trailing tool results in the selected branch without changing tool choice", async () => {
+		const branchEntries: SessionEntry[] = [
+			...entries,
+			{
+				type: "message",
+				id: "tool-call",
+				parentId: "branch-user",
+				timestamp: new Date(2).toISOString(),
+				message: {
+					...response([{ type: "toolCall", id: "call", name: "read", arguments: {} }]),
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				id: "tool-result",
+				parentId: "tool-call",
+				timestamp: new Date(2).toISOString(),
+				message: {
+					role: "toolResult",
+					toolCallId: "call",
+					toolName: "read",
+					content: [{ type: "text", text: "result" }],
+					isError: false,
+					timestamp: 2,
+				},
+			},
+		];
+		const context: Context = {
+			messages: [
+				{ role: "user", content: "Common ancestor", timestamp: 0 },
+				...convertToLlm(branchEntries.flatMap((entry) => (entry.type === "message" ? [entry.message] : []))),
+			],
+		};
+		let requestContext: Context | undefined;
 		let requestOptions: SimpleStreamOptions | undefined;
 		const streamFn: StreamFn = (_model, _context, options) => {
+			requestContext = _context;
 			requestOptions = options;
 			const stream = createAssistantMessageEventStream();
 			queueMicrotask(() =>
@@ -55,7 +92,8 @@ describe("branch summarization", () => {
 			return stream;
 		};
 
-		await generateBranchSummary(entries, {
+		await generateBranchSummary(branchEntries, {
+			requestConfig: { context },
 			model,
 			signal: new AbortController().signal,
 			streamFn,
@@ -63,6 +101,8 @@ describe("branch summarization", () => {
 
 		expect(requestOptions?.maxTokens).toBe(4096);
 		expect(requestOptions?.toolChoice).toBeUndefined();
+		expect(JSON.stringify(requestContext?.messages.at(-1))).toContain("messages 2 through 4");
+		expect(requestContext?.messages.slice(0, -1)).toEqual(context.messages);
 	});
 
 	it("clamps the branch summary output cap to the model limit", async () => {
@@ -77,6 +117,7 @@ describe("branch summarization", () => {
 		};
 
 		await generateBranchSummary(entries, {
+			requestConfig: { context: { messages: [{ role: "user", content: "Abandoned request", timestamp: 1 }] } },
 			model: { ...model, maxTokens: 1024 },
 			signal: new AbortController().signal,
 			streamFn,
@@ -97,6 +138,7 @@ describe("branch summarization", () => {
 		};
 
 		await generateBranchSummary(entries, {
+			requestConfig: { context: { messages: [{ role: "user", content: "Abandoned request", timestamp: 1 }] } },
 			model,
 			signal: new AbortController().signal,
 			streamFn,
@@ -122,6 +164,7 @@ describe("branch summarization", () => {
 		};
 
 		const result = await generateBranchSummary(entries, {
+			requestConfig: { context: { messages: [{ role: "user", content: "Abandoned request", timestamp: 1 }] } },
 			model,
 			signal: new AbortController().signal,
 			streamFn,
@@ -144,6 +187,7 @@ describe("branch summarization", () => {
 		};
 
 		const result = await generateBranchSummary(entries, {
+			requestConfig: { context: { messages: [{ role: "user", content: "Abandoned request", timestamp: 1 }] } },
 			model,
 			signal: new AbortController().signal,
 			streamFn,

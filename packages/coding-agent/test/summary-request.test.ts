@@ -1,6 +1,7 @@
 import type { AssistantMessage, Context, ToolResultMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { buildSummaryRequestContext } from "../src/core/compaction/index.ts";
+import { buildSummaryRequestContext, describeSummaryScope } from "../src/core/compaction/index.ts";
 
 function toolResult(id: string, text: string): ToolResultMessage {
 	return {
@@ -13,47 +14,25 @@ function toolResult(id: string, text: string): ToolResultMessage {
 	};
 }
 
-function toolCall(id: string, path?: string): AssistantMessage {
-	return {
-		role: "assistant",
-		content: [{ type: "toolCall", id, name: "read", arguments: path ? { path } : {} }],
-		api: "openai-responses",
-		provider: "openai",
-		model: "test",
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
-		stopReason: "toolUse",
-		timestamp: 2,
-	};
+function toolCall(id: string): AssistantMessage {
+	return fauxAssistantMessage(
+		{ type: "toolCall", id, name: "read", arguments: {} },
+		{ stopReason: "toolUse", timestamp: 2 },
+	);
 }
 
 describe("summary request context", () => {
-	it("preserves structured context and appends instructions", () => {
-		const context: Context = {
-			systemPrompt: "normal system prompt",
-			tools: [{ name: "read", description: "Read a file", parameters: { type: "object" } }],
-			messages: [
-				{ role: "user", content: "inspect README", timestamp: 1 },
-				toolCall("call-1", "README.md"),
-				toolResult("call-1", "file contents"),
-			],
-		};
-
-		const request = buildSummaryRequestContext(context, "Existing summary instructions", 1000, 100);
-
-		expect(request.systemPrompt).toBe(context.systemPrompt);
-		expect(request.tools).toEqual(context.tools);
-		expect(request.messages.slice(0, -1)).toEqual(context.messages);
-		expect(request.messages.at(-1)).toMatchObject({
-			role: "user",
-			content: [{ type: "text", text: "Existing summary instructions" }],
-		});
+	it("distinguishes identical replies by identity and rejects ambiguous copies", () => {
+		const first = toolCall("call");
+		const second = structuredClone(first);
+		const context = { messages: [first, second] };
+		expect(describeSummaryScope(context, [second])).toContain("messages 2 through 2");
+		expect(() => describeSummaryScope(context, [structuredClone(first)])).toThrow("ambiguous");
+		const rewritten = { ...first, content: [{ type: "text" as const, text: "Rewritten by an extension" }] };
+		expect(describeSummaryScope({ messages: [rewritten] }, [first])).toContain("messages 1 through 1");
+		expect(() => describeSummaryScope(context, [{ role: "user", content: "absent", timestamp: 3 }])).toThrow(
+			"not present",
+		);
 	});
 
 	it("shortens tool results newest-first without mutating canonical history", () => {

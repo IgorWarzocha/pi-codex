@@ -281,7 +281,7 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.faux.state.callCount).toBe(1);
 	});
 
-	it("prepares a structured compaction request when no provider snapshot exists", async () => {
+	it("prepares compaction through the normal context pipeline with live routing", async () => {
 		const harness = await createHarness({ settings: { compaction: { keepRecentTokens: 1 } } });
 		harnesses.push(harness);
 		seedCompactableSession(harness);
@@ -305,9 +305,9 @@ describe("AgentSession compaction characterization", () => {
 		expect(requestContext?.tools).toEqual(harness.session.agent.state.tools);
 		expect(JSON.stringify(requestContext?.messages)).not.toContain("<conversation>");
 		expect(requestOptions?.cacheRetention).toBeUndefined();
-		expect(requestOptions?.sessionId).toBe(harness.session.sessionId);
-		expect(requestOptions?.sessionId).not.toBe("active-routing-session");
-		expect(requestOptions?.transport).toBe("sse");
+		expect(requestOptions?.sessionId).toBe("active-routing-session");
+		expect(requestOptions?.transport).toBe("websocket");
+		expect(requestOptions?.isolateSession).toBe(true);
 	});
 
 	it("persists usage from pi-generated manual compaction", async () => {

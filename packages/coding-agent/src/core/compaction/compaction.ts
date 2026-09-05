@@ -9,22 +9,19 @@ import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-a
 import { contentText, type RetryCallbacks, type RetryPolicy, retryAssistantCall } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import { convertToLlm } from "../messages.ts";
 import {
 	buildSessionContext,
 	type CompactionEntry,
 	type SessionEntry,
 	sessionEntryToContextMessages,
 } from "../session-manager.ts";
-import { buildSummaryRequestContext } from "./summary-request.ts";
+import { buildSummaryRequestContext, describeSummaryScope } from "./summary-request.ts";
 import {
 	computeFileLists,
 	createFileOps,
 	extractFileOpsFromMessage,
 	type FileOperations,
 	formatFileOperations,
-	SUMMARIZATION_SYSTEM_PROMPT,
-	serializeConversation,
 } from "./utils.ts";
 
 // ============================================================================
@@ -561,7 +558,7 @@ function createSummarizationOptions(
 	env: Record<string, string> | undefined,
 	signal: AbortSignal | undefined,
 	thinkingLevel: ThinkingLevel | undefined,
-	requestConfig: SummarizationRequestConfig | undefined,
+	requestConfig: SummarizationRequestConfig,
 ): SimpleStreamOptions {
 	const options: SimpleStreamOptions = {
 		maxTokens,
@@ -569,12 +566,12 @@ function createSummarizationOptions(
 		apiKey,
 		headers,
 		env,
-		sessionId: requestConfig?.sessionId,
-		transport: requestConfig?.transport,
-		onPayload: requestConfig?.onPayload,
-		onResponse: requestConfig?.onResponse,
-		thinkingBudgets: requestConfig?.thinkingBudgets,
-		maxRetryDelayMs: requestConfig?.maxRetryDelayMs,
+		sessionId: requestConfig.sessionId,
+		transport: requestConfig.transport,
+		onPayload: requestConfig.onPayload,
+		onResponse: requestConfig.onResponse,
+		thinkingBudgets: requestConfig.thinkingBudgets,
+		maxRetryDelayMs: requestConfig.maxRetryDelayMs,
 	};
 	if (model.reasoning && thinkingLevel && thinkingLevel !== "off") {
 		options.reasoning = thinkingLevel;
@@ -597,16 +594,19 @@ export async function completeSummarization(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 ): Promise<AssistantMessage> {
+	const isolatedOptions = { ...options, isolateSession: true };
 	const produce = async (): Promise<AssistantMessage> =>
-		streamFn ? (await streamFn(model, context, options)).result() : completeSimple(model, context, options);
+		streamFn
+			? (await streamFn(model, context, isolatedOptions)).result()
+			: completeSimple(model, context, isolatedOptions);
 	return retryAssistantCall(produce, retry, options.signal, callbacks);
 }
 
 export interface SummarizationRequestConfig {
-	/** Latest structured context prepared by the normal agent request path. */
+	/** Structured context prepared through the normal transform and conversion path. */
 	context: Context;
-	sessionId: string;
-	transport: SimpleStreamOptions["transport"];
+	sessionId?: string;
+	transport?: SimpleStreamOptions["transport"];
 	onPayload?: SimpleStreamOptions["onPayload"];
 	onResponse?: SimpleStreamOptions["onResponse"];
 	thinkingBudgets?: SimpleStreamOptions["thinkingBudgets"];
@@ -619,6 +619,7 @@ export interface SummarizationRequestConfig {
  */
 export async function generateSummary(
 	currentMessages: AgentMessage[],
+	requestConfig: SummarizationRequestConfig,
 	model: Model<any>,
 	reserveTokens: number,
 	apiKey: string | undefined,
@@ -631,11 +632,11 @@ export async function generateSummary(
 	env?: Record<string, string>,
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
-	requestConfig?: SummarizationRequestConfig,
 ): Promise<string> {
 	return (
 		await generateSummaryWithUsage(
 			currentMessages,
+			requestConfig,
 			model,
 			reserveTokens,
 			apiKey,
@@ -648,41 +649,14 @@ export async function generateSummary(
 			env,
 			retry,
 			callbacks,
-			requestConfig,
 		)
 	).text;
-}
-
-/** Build the provider context for a standalone summary request. */
-function buildSummarizationContext(
-	promptText: string,
-	model: Model<any>,
-	reserveTokens: number,
-	requestConfig: SummarizationRequestConfig | undefined,
-): Context {
-	if (requestConfig) {
-		return buildSummaryRequestContext(
-			requestConfig.context,
-			promptText,
-			model.contextWindow || 128000,
-			reserveTokens,
-		);
-	}
-	return {
-		systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
-		messages: [
-			{
-				role: "user",
-				content: [{ type: "text", text: promptText }],
-				timestamp: Date.now(),
-			},
-		],
-	};
 }
 
 /** Generate or update a conversation summary and return its provider usage. */
 export async function generateSummaryWithUsage(
 	currentMessages: AgentMessage[],
+	requestConfig: SummarizationRequestConfig,
 	model: Model<any>,
 	reserveTokens: number,
 	apiKey: string | undefined,
@@ -695,7 +669,6 @@ export async function generateSummaryWithUsage(
 	env?: Record<string, string>,
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
-	requestConfig?: SummarizationRequestConfig,
 ): Promise<{ text: string; usage: Usage }> {
 	const maxTokens = Math.min(
 		Math.floor(0.8 * reserveTokens),
@@ -709,16 +682,10 @@ export async function generateSummaryWithUsage(
 	}
 
 	let promptText = "";
-	if (!requestConfig) {
-		// Standalone callers do not have a prepared provider context.
-		const llmMessages = convertToLlm(currentMessages);
-		const conversationText = serializeConversation(llmMessages);
-		promptText = `<conversation>\n${conversationText}\n</conversation>\n\n`;
-	}
 	if (previousSummary) {
 		promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
 	}
-	promptText += basePrompt;
+	promptText += `${basePrompt}\n\n${describeSummaryScope(requestConfig.context, currentMessages)}`;
 
 	const completionOptions = createSummarizationOptions(
 		model,
@@ -733,7 +700,7 @@ export async function generateSummaryWithUsage(
 
 	const response = await completeSummarization(
 		model,
-		buildSummarizationContext(promptText, model, reserveTokens, requestConfig),
+		buildSummaryRequestContext(requestConfig.context, promptText, model.contextWindow, reserveTokens),
 		completionOptions,
 		streamFn,
 		retry,
@@ -881,10 +848,11 @@ Be concise. Focus on what's needed to understand the kept suffix.`;
  *
  * @param preparation - Pre-calculated preparation from prepareCompaction()
  * @param customInstructions - Optional custom focus for the summary
- * @param requestConfig - Optional prepared normal request context and routing options
+ * @param requestConfig - Prepared normal request context and routing options
  */
 export async function compact(
 	preparation: CompactionPreparation,
+	requestConfig: SummarizationRequestConfig,
 	model: Model<any>,
 	apiKey: string | undefined,
 	headers?: Record<string, string>,
@@ -895,7 +863,6 @@ export async function compact(
 	env?: Record<string, string>,
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
-	requestConfig?: SummarizationRequestConfig,
 ): Promise<CompactionResult> {
 	const {
 		firstKeptEntryId,
@@ -918,6 +885,7 @@ export async function compact(
 		if (messagesToSummarize.length > 0) {
 			const historyResult = await generateSummaryWithUsage(
 				messagesToSummarize,
+				requestConfig,
 				model,
 				settings.reserveTokens,
 				apiKey,
@@ -930,13 +898,13 @@ export async function compact(
 				env,
 				retry,
 				callbacks,
-				requestConfig,
 			);
 			historyText = historyResult.text;
 			historyUsage = historyResult.usage;
 		}
 		const turnPrefixResult = await generateTurnPrefixSummary(
 			turnPrefixMessages,
+			requestConfig,
 			model,
 			settings.reserveTokens,
 			apiKey,
@@ -947,7 +915,6 @@ export async function compact(
 			streamFn,
 			retry,
 			callbacks,
-			requestConfig,
 		);
 		// Merge into single summary
 		summary = `${historyText}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
@@ -956,6 +923,7 @@ export async function compact(
 		// Just generate history summary
 		const result = await generateSummaryWithUsage(
 			messagesToSummarize,
+			requestConfig,
 			model,
 			settings.reserveTokens,
 			apiKey,
@@ -968,7 +936,6 @@ export async function compact(
 			env,
 			retry,
 			callbacks,
-			requestConfig,
 		);
 		summary = result.text;
 		summaryUsage = result.usage;
@@ -996,6 +963,7 @@ export async function compact(
  */
 async function generateTurnPrefixSummary(
 	messages: AgentMessage[],
+	requestConfig: SummarizationRequestConfig,
 	model: Model<any>,
 	reserveTokens: number,
 	apiKey: string | undefined,
@@ -1006,22 +974,16 @@ async function generateTurnPrefixSummary(
 	streamFn?: StreamFn,
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
-	requestConfig?: SummarizationRequestConfig,
 ): Promise<{ text: string; usage: Usage }> {
 	const maxTokens = Math.min(
 		Math.floor(0.5 * reserveTokens),
 		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
 	); // Smaller budget for turn prefix
-	let promptText = TURN_PREFIX_SUMMARIZATION_PROMPT;
-	if (!requestConfig) {
-		const llmMessages = convertToLlm(messages);
-		const conversationText = serializeConversation(llmMessages);
-		promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${promptText}`;
-	}
+	const promptText = `${TURN_PREFIX_SUMMARIZATION_PROMPT}\n\n${describeSummaryScope(requestConfig.context, messages)}`;
 
 	const response = await completeSummarization(
 		model,
-		buildSummarizationContext(promptText, model, reserveTokens, requestConfig),
+		buildSummaryRequestContext(requestConfig.context, promptText, model.contextWindow, reserveTokens),
 		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel, requestConfig),
 		streamFn,
 		retry,

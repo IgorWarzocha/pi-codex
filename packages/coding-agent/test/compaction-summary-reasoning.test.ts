@@ -8,6 +8,7 @@ import {
 	generateSummary,
 	generateSummaryWithUsage,
 } from "../src/core/compaction/index.ts";
+import { convertToLlm } from "../src/core/messages.ts";
 
 const { completeSimpleMock } = vi.hoisted(() => ({
 	completeSimpleMock: vi.fn(),
@@ -35,7 +36,7 @@ function createModel(
 		reasoning,
 		input: ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 200000,
+		contextWindow: 1000000,
 		maxTokens,
 		...(compat ? { compat } : {}),
 	};
@@ -67,6 +68,11 @@ const mockToolCallResponse: AssistantMessage = {
 
 const messages: AgentMessage[] = [{ role: "user", content: "Summarize this.", timestamp: Date.now() }];
 
+const requestConfig = {
+	context: { systemPrompt: "Normal system", messages: convertToLlm(messages) },
+	sessionId: "live-session",
+};
+
 describe("generateSummary reasoning options", () => {
 	beforeEach(() => {
 		completeSimpleMock.mockReset();
@@ -76,6 +82,7 @@ describe("generateSummary reasoning options", () => {
 	it("uses the provided thinking level for reasoning-capable models", async () => {
 		const result = await generateSummaryWithUsage(
 			messages,
+			requestConfig,
 			createModel(true),
 			2000,
 			"test-key",
@@ -97,19 +104,20 @@ describe("generateSummary reasoning options", () => {
 	});
 
 	it("preserves the string result from generateSummary", async () => {
-		await expect(generateSummary(messages, createModel(false), 2000, "test-key")).resolves.toBe(
+		await expect(generateSummary(messages, requestConfig, createModel(false), 2000, "test-key")).resolves.toBe(
 			"## Goal\nTest summary",
 		);
 	});
 
-	it("does not invent routing for standalone summaries", async () => {
-		await generateSummary(messages, createModel(false), 2000, "test-key");
-		await generateSummary(messages, createModel(false), 2000, "test-key");
+	it("retains routing and isolates local continuation for every summary", async () => {
+		await generateSummary(messages, requestConfig, createModel(false), 2000, "test-key");
+		await generateSummary(messages, requestConfig, createModel(false), 2000, "test-key");
 
 		const requestOptions = completeSimpleMock.mock.calls.map((call) => call[2]);
 		expect(requestOptions).toHaveLength(2);
+		expect(requestOptions.every((options) => options?.isolateSession === true)).toBe(true);
 		expect(requestOptions.every((options) => options?.cacheRetention === undefined)).toBe(true);
-		expect(requestOptions.every((options) => options?.sessionId === undefined)).toBe(true);
+		expect(requestOptions.every((options) => options?.sessionId === "live-session")).toBe(true);
 	});
 
 	it("honors caller-supplied routing, cache retention, and tool choice", async () => {
@@ -126,7 +134,7 @@ describe("generateSummary reasoning options", () => {
 		});
 	});
 
-	it("preserves the standalone split-turn summary prompt", async () => {
+	it("appends split-turn instructions without flattening history", async () => {
 		const preparation: CompactionPreparation = {
 			firstKeptEntryId: "entry-keep",
 			messagesToSummarize: [],
@@ -137,20 +145,22 @@ describe("generateSummary reasoning options", () => {
 			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
 		};
 
-		await compact(preparation, createModel(false), "test-key");
+		await compact(preparation, requestConfig, createModel(false), "test-key");
 
 		const requestContext = completeSimpleMock.mock.calls[0][1] as Context;
 		const prompt = JSON.stringify(requestContext.messages);
 		expect(prompt).toContain("This is the PREFIX of a turn that was too large to keep");
-		expect(prompt).toContain("<conversation>");
+		expect(prompt).not.toContain("<conversation>");
+		expect(requestContext.messages[0]).toEqual(requestConfig.context.messages[0]);
+		expect(prompt).toContain("Summarize only messages 1 through 1");
 	});
 
 	it("rejects tool calls from conversation summaries", async () => {
 		completeSimpleMock.mockResolvedValueOnce(mockToolCallResponse);
 
-		await expect(generateSummaryWithUsage(messages, createModel(false), 2000, "test-key")).rejects.toThrow(
-			"Summarization attempted to call a tool",
-		);
+		await expect(
+			generateSummaryWithUsage(messages, requestConfig, createModel(false), 2000, "test-key"),
+		).rejects.toThrow("Summarization attempted to call a tool");
 	});
 
 	it("rejects tool calls from split-turn summaries", async () => {
@@ -165,7 +175,7 @@ describe("generateSummary reasoning options", () => {
 			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
 		};
 
-		await expect(compact(preparation, createModel(false), "test-key")).rejects.toThrow(
+		await expect(compact(preparation, requestConfig, createModel(false), "test-key")).rejects.toThrow(
 			"Turn prefix summarization attempted to call a tool",
 		);
 	});
@@ -177,9 +187,9 @@ describe("generateSummary reasoning options", () => {
 			content: [{ type: "text", text: "partial" }],
 		});
 
-		await expect(generateSummaryWithUsage(messages, createModel(false), 2000, "test-key")).rejects.toThrow(
-			"generation hit the token cap",
-		);
+		await expect(
+			generateSummaryWithUsage(messages, requestConfig, createModel(false), 2000, "test-key"),
+		).rejects.toThrow("generation hit the token cap");
 	});
 
 	it("rejects a length-limited split-turn summary", async () => {
@@ -198,7 +208,7 @@ describe("generateSummary reasoning options", () => {
 			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
 		};
 
-		await expect(compact(preparation, createModel(false), "test-key")).rejects.toThrow(
+		await expect(compact(preparation, requestConfig, createModel(false), "test-key")).rejects.toThrow(
 			"generation hit the token cap",
 		);
 	});
@@ -206,6 +216,7 @@ describe("generateSummary reasoning options", () => {
 	it("does not set reasoning when thinking is off", async () => {
 		await generateSummary(
 			messages,
+			requestConfig,
 			createModel(true),
 			2000,
 			"test-key",
@@ -226,6 +237,7 @@ describe("generateSummary reasoning options", () => {
 	it("does not set reasoning for non-reasoning models", async () => {
 		await generateSummary(
 			messages,
+			requestConfig,
 			createModel(false),
 			2000,
 			"test-key",
@@ -246,6 +258,7 @@ describe("generateSummary reasoning options", () => {
 	it("leaves Anthropic refusal fallback handling to pi-ai model metadata", async () => {
 		await generateSummary(
 			messages,
+			requestConfig,
 			createModel(true, 8192, {
 				allowedFallbackModels: [
 					{
@@ -264,25 +277,32 @@ describe("generateSummary reasoning options", () => {
 	});
 
 	it("does not set Anthropic refusal fallback for models without allowed fallback targets", async () => {
-		await generateSummary(messages, createModel(true), 2000, "test-key");
+		await generateSummary(messages, requestConfig, createModel(true), 2000, "test-key");
 
 		expect(completeSimpleMock).toHaveBeenCalledTimes(1);
 		expect(completeSimpleMock.mock.calls[0][2]).not.toHaveProperty("refusalFallbacks");
 	});
 
-	it("clamps compaction summary maxTokens to the model output cap", async () => {
+	it("scopes history and split-turn requests separately and clamps their output caps", async () => {
+		const prefix: AgentMessage = { role: "user", content: "New turn prefix", timestamp: 10 };
+		const kept: AgentMessage = { ...mockSummaryResponse, timestamp: 11 };
+		const context: Context = { ...requestConfig.context, messages: [...convertToLlm(messages), prefix, kept] };
 		const preparation: CompactionPreparation = {
 			firstKeptEntryId: "entry-keep",
 			messagesToSummarize: messages,
-			turnPrefixMessages: messages,
+			turnPrefixMessages: [prefix],
 			isSplitTurn: true,
 			tokensBefore: 600000,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
 			settings: { enabled: true, reserveTokens: 500000, keepRecentTokens: 20000 },
 		};
 
-		const result = await compact(preparation, createModel(false, 128000), "test-key");
+		const result = await compact(preparation, { ...requestConfig, context }, createModel(false, 128000), "test-key");
 
+		const contexts = completeSimpleMock.mock.calls.map((call) => call[1] as Context);
+		expect(contexts.map((request) => request.messages.slice(0, -1))).toEqual([context.messages, context.messages]);
+		expect(JSON.stringify(contexts[0].messages.at(-1))).toContain("messages 1 through 1");
+		expect(JSON.stringify(contexts[1].messages.at(-1))).toContain("messages 2 through 2");
 		expect(result.usage).toEqual({
 			...mockSummaryResponse.usage,
 			input: 20,

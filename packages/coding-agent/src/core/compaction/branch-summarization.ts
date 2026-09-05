@@ -9,28 +9,16 @@ import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { RetryCallbacks, RetryPolicy } from "@earendil-works/pi-ai";
 import { contentText } from "@earendil-works/pi-ai";
 import type { Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
-import {
-	convertToLlm,
-	createBranchSummaryMessage,
-	createCompactionSummaryMessage,
-	createCustomMessage,
-} from "../messages.ts";
+import { createBranchSummaryMessage, createCompactionSummaryMessage, createCustomMessage } from "../messages.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
-import {
-	completeSummarization,
-	estimateTokens,
-	getSummarizationFailure,
-	type SummarizationRequestConfig,
-} from "./compaction.ts";
-import { buildSummaryRequestContext } from "./summary-request.ts";
+import { completeSummarization, getSummarizationFailure, type SummarizationRequestConfig } from "./compaction.ts";
+import { buildSummaryRequestContext, describeSummaryScope } from "./summary-request.ts";
 import {
 	computeFileLists,
 	createFileOps,
 	extractFileOpsFromMessage,
 	type FileOperations,
 	formatFileOperations,
-	SUMMARIZATION_SYSTEM_PROMPT,
-	serializeConversation,
 } from "./utils.ts";
 
 // ============================================================================
@@ -59,8 +47,6 @@ export interface BranchPreparation {
 	messages: AgentMessage[];
 	/** File operations extracted from tool calls */
 	fileOps: FileOperations;
-	/** Total estimated tokens in messages */
-	totalTokens: number;
 }
 
 export interface CollectEntriesResult {
@@ -85,7 +71,7 @@ export interface GenerateBranchSummaryOptions {
 	customInstructions?: string;
 	/** If true, customInstructions replaces the default prompt instead of being appended */
 	replaceInstructions?: boolean;
-	/** Tokens reserved when selecting branch history (default 16384) */
+	/** Output headroom reserved when preparing the request (default 16384) */
 	reserveTokens?: number;
 	/** Optional session stream function. Used to preserve SDK request behavior without mutating agent state. */
 	streamFn?: StreamFn;
@@ -94,7 +80,7 @@ export interface GenerateBranchSummaryOptions {
 	/** Optional callbacks for retry reporting (e.g. TUI retry indicators). */
 	callbacks?: RetryCallbacks;
 	/** Prepared normal request context and routing options used by AgentSession. */
-	requestConfig?: SummarizationRequestConfig;
+	requestConfig: SummarizationRequestConfig;
 }
 
 // ============================================================================
@@ -164,8 +150,6 @@ export function collectEntriesForBranchSummary(
 function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 	switch (entry.type) {
 		case "message":
-			// Skip tool results - context is in assistant's tool call
-			if (entry.message.role === "toolResult") return undefined;
 			return entry.message;
 
 		case "custom_message":
@@ -188,25 +172,19 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 }
 
 /**
- * Prepare entries for summarization with token budget.
- *
- * Walks entries from NEWEST to OLDEST, adding messages until we hit the token budget.
- * This ensures we keep the most recent context when the branch is too long.
+ * Extract the selected messages and cumulative file operations.
+ * Request sizing belongs to buildSummaryRequestContext, not entry selection.
  *
  * Also collects file operations from:
  * - Tool calls in assistant messages
  * - Existing branch_summary entries' details (for cumulative tracking)
  *
  * @param entries - Entries in chronological order
- * @param tokenBudget - Maximum tokens to include (0 = no limit)
  */
-export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: number = 0): BranchPreparation {
+export function prepareBranchEntries(entries: SessionEntry[]): BranchPreparation {
 	const messages: AgentMessage[] = [];
 	const fileOps = createFileOps();
-	let totalTokens = 0;
 
-	// First pass: collect file ops from ALL entries (even if they don't fit in token budget)
-	// This ensures we capture cumulative file tracking from nested branch summaries
 	// Only extract from pi-generated summaries (fromHook !== true), not extension-generated ones
 	for (const entry of entries) {
 		if (entry.type === "branch_summary" && !entry.fromHook && entry.details) {
@@ -221,37 +199,14 @@ export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: numbe
 				}
 			}
 		}
-	}
-
-	// Second pass: walk from newest to oldest, adding messages until token budget
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i];
 		const message = getMessageFromEntry(entry);
 		if (!message) continue;
 
-		// Extract file ops from assistant messages (tool calls)
 		extractFileOpsFromMessage(message, fileOps);
-
-		const tokens = estimateTokens(message);
-
-		// Check budget before adding
-		if (tokenBudget > 0 && totalTokens + tokens > tokenBudget) {
-			// If this is a summary entry, try to fit it anyway as it's important context
-			if (entry.type === "compaction" || entry.type === "branch_summary") {
-				if (totalTokens < tokenBudget * 0.9) {
-					messages.unshift(message);
-					totalTokens += tokens;
-				}
-			}
-			// Stop - we've hit the budget
-			break;
-		}
-
-		messages.unshift(message);
-		totalTokens += tokens;
+		messages.push(message);
 	}
 
-	return { messages, fileOps, totalTokens };
+	return { messages, fileOps };
 }
 
 // ============================================================================
@@ -317,11 +272,7 @@ export async function generateBranchSummary(
 		requestConfig,
 	} = options;
 
-	// Token budget = context window minus reserved space for prompt + response
-	const contextWindow = model.contextWindow || 128000;
-	const tokenBudget = contextWindow - reserveTokens;
-
-	const { messages, fileOps } = prepareBranchEntries(entries, tokenBudget);
+	const { messages, fileOps } = prepareBranchEntries(entries);
 
 	if (messages.length === 0) {
 		return { summary: "No content to summarize" };
@@ -336,20 +287,7 @@ export async function generateBranchSummary(
 	} else {
 		instructions = BRANCH_SUMMARY_PROMPT;
 	}
-	let promptText = instructions;
-	if (!requestConfig) {
-		const llmMessages = convertToLlm(messages);
-		const conversationText = serializeConversation(llmMessages);
-		promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${instructions}`;
-	}
-
-	const summarizationMessages = [
-		{
-			role: "user" as const,
-			content: [{ type: "text" as const, text: promptText }],
-			timestamp: Date.now(),
-		},
-	];
+	const promptText = `${instructions}\n\n${describeSummaryScope(requestConfig.context, messages)}`;
 
 	const maxTokens = Math.min(reserveTokens, 4096, model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY);
 
@@ -357,21 +295,24 @@ export async function generateBranchSummary(
 	// request behavior (timeouts, retries, attribution headers) stays consistent
 	// without running through agent state/events. Retried via completeSummarization
 	// so transient stream drops reuse the configured retry policy.
-	const context: Context = requestConfig
-		? buildSummaryRequestContext(requestConfig.context, promptText, contextWindow, reserveTokens)
-		: { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages };
+	const context: Context = buildSummaryRequestContext(
+		requestConfig.context,
+		promptText,
+		model.contextWindow,
+		reserveTokens,
+	);
 	const requestOptions: SimpleStreamOptions = {
 		apiKey,
 		headers,
 		env,
 		signal,
 		maxTokens,
-		sessionId: requestConfig?.sessionId,
-		transport: requestConfig?.transport,
-		onPayload: requestConfig?.onPayload,
-		onResponse: requestConfig?.onResponse,
-		thinkingBudgets: requestConfig?.thinkingBudgets,
-		maxRetryDelayMs: requestConfig?.maxRetryDelayMs,
+		sessionId: requestConfig.sessionId,
+		transport: requestConfig.transport,
+		onPayload: requestConfig.onPayload,
+		onResponse: requestConfig.onResponse,
+		thinkingBudgets: requestConfig.thinkingBudgets,
+		maxRetryDelayMs: requestConfig.maxRetryDelayMs,
 	};
 	const response = await completeSummarization(model, context, requestOptions, streamFn, retry, callbacks);
 
