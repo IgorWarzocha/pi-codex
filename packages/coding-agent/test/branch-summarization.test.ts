@@ -94,13 +94,15 @@ describe("branch summarization", () => {
 
 		await generateBranchSummary(branchEntries, {
 			requestConfig: { context },
-			model,
+			model: { ...model, reasoning: true },
+			thinkingLevel: "low",
 			signal: new AbortController().signal,
 			streamFn,
 		});
 
 		expect(requestOptions?.maxTokens).toBe(4096);
 		expect(requestOptions?.toolChoice).toBeUndefined();
+		expect(requestOptions?.reasoning).toBe("low");
 		expect(JSON.stringify(requestContext?.messages.at(-1))).toContain("messages 2 through 4");
 		expect(requestContext?.messages.slice(0, -1)).toEqual(context.messages);
 	});

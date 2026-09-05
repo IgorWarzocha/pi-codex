@@ -5,13 +5,18 @@
  * a summary of the branch being left so context isn't lost.
  */
 
-import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { RetryCallbacks, RetryPolicy } from "@earendil-works/pi-ai";
 import { contentText } from "@earendil-works/pi-ai";
-import type { Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
+import type { Context, Model, Usage } from "@earendil-works/pi-ai/compat";
 import { createBranchSummaryMessage, createCompactionSummaryMessage, createCustomMessage } from "../messages.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
-import { completeSummarization, getSummarizationFailure, type SummarizationRequestConfig } from "./compaction.ts";
+import {
+	completeSummarization,
+	createSummarizationOptions,
+	getSummarizationFailure,
+	type SummarizationRequestConfig,
+} from "./compaction.ts";
 import { buildSummaryRequestContext, describeSummaryScope } from "./summary-request.ts";
 import {
 	computeFileLists,
@@ -73,6 +78,8 @@ export interface GenerateBranchSummaryOptions {
 	replaceInstructions?: boolean;
 	/** Output headroom reserved when preparing the request (default 16384) */
 	reserveTokens?: number;
+	/** Active session thinking level, preserved for the summary request. */
+	thinkingLevel?: ThinkingLevel;
 	/** Optional session stream function. Used to preserve SDK request behavior without mutating agent state. */
 	streamFn?: StreamFn;
 	/** Retry policy for transient summarization errors. Reuses coding-agent's `settings.retry`. */
@@ -220,7 +227,7 @@ Summary of that exploration:
 
 const BRANCH_SUMMARY_PROMPT = `Create a structured summary of this conversation branch for context when returning later.
 
-Use this EXACT format:
+The following summary structure is REQUIRED. You MUST preserve all headings and their order:
 
 ## Goal
 [What was the user trying to accomplish in this branch?]
@@ -243,7 +250,7 @@ Use this EXACT format:
 - **[Decision]**: [Brief rationale]
 
 ## Next Steps
-1. [What should happen next to continue this work]
+1. [Remaining steps already identified in the branch, or "(none recorded)"]
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
@@ -266,6 +273,7 @@ export async function generateBranchSummary(
 		customInstructions,
 		replaceInstructions,
 		reserveTokens = 16384,
+		thinkingLevel,
 		streamFn,
 		retry,
 		callbacks,
@@ -301,19 +309,16 @@ export async function generateBranchSummary(
 		model.contextWindow,
 		reserveTokens,
 	);
-	const requestOptions: SimpleStreamOptions = {
+	const requestOptions = createSummarizationOptions(
+		model,
+		maxTokens,
 		apiKey,
 		headers,
 		env,
 		signal,
-		maxTokens,
-		sessionId: requestConfig.sessionId,
-		transport: requestConfig.transport,
-		onPayload: requestConfig.onPayload,
-		onResponse: requestConfig.onResponse,
-		thinkingBudgets: requestConfig.thinkingBudgets,
-		maxRetryDelayMs: requestConfig.maxRetryDelayMs,
-	};
+		thinkingLevel,
+		requestConfig,
+	);
 	const response = await completeSummarization(model, context, requestOptions, streamFn, retry, callbacks);
 
 	// Check if aborted or errored

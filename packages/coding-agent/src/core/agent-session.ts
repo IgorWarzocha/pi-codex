@@ -3236,6 +3236,7 @@ export class AgentSession {
 					customInstructions,
 					replaceInstructions,
 					reserveTokens: branchSummarySettings.reserveTokens,
+					thinkingLevel: this.thinkingLevel,
 					streamFn: this.agent.streamFunction,
 					retry: this.settingsManager.getRetrySettings(),
 					callbacks: this._summarizationRetryCallbacks({ source: "branchSummary" }),

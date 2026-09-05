@@ -464,7 +464,7 @@ export function findCutPoint(
 
 const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
 
-Use this EXACT format:
+The following summary structure is REQUIRED. You MUST preserve all headings and their order:
 
 ## Goal
 [What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]
@@ -487,7 +487,7 @@ Use this EXACT format:
 - **[Decision]**: [Brief rationale]
 
 ## Next Steps
-1. [Ordered list of what should happen next]
+1. [Remaining steps already identified in the conversation, or "(none recorded)"]
 
 ## Critical Context
 - [Any data, examples, or references needed to continue]
@@ -503,7 +503,7 @@ const UPDATE_SUMMARIZATION_INSTRUCTIONS = `Update the existing structured summar
 - PRESERVE exact file paths, function names, and error messages
 - If something is no longer relevant, you may remove it
 
-Use this EXACT format:
+The following summary structure is REQUIRED. You MUST preserve all headings and their order:
 
 ## Goal
 [Preserve existing goals, add new ones if the task expanded]
@@ -525,7 +525,7 @@ Use this EXACT format:
 - **[Decision]**: [Brief rationale] (preserve all previous, add new)
 
 ## Next Steps
-1. [Update based on current state]
+1. [Update previously identified steps based on recorded progress; do not invent new plans]
 
 ## Critical Context
 - [Preserve important context, add new if needed]
@@ -550,7 +550,7 @@ export function getSummarizationFailure(response: AssistantMessage, label: strin
 	return undefined;
 }
 
-function createSummarizationOptions(
+export function createSummarizationOptions(
 	model: Model<any>,
 	maxTokens: number,
 	apiKey: string | undefined,
@@ -829,7 +829,8 @@ export function prepareCompaction(
 
 const TURN_PREFIX_SUMMARIZATION_PROMPT = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
 
-Summarize the prefix to provide context for the retained suffix:
+Summarize the prefix to provide context for the retained suffix.
+The following summary structure is REQUIRED. You MUST preserve all headings and their order:
 
 ## Original Request
 [What did the user ask for in this turn?]
