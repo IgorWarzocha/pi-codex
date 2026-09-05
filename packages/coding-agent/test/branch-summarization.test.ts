@@ -85,6 +85,27 @@ describe("branch summarization", () => {
 		expect(requestOptions?.maxTokens).toBe(1024);
 	});
 
+	it("keeps the branch summary output cap within the reserved headroom", async () => {
+		let requestOptions: SimpleStreamOptions | undefined;
+		const streamFn: StreamFn = (_model, _context, options) => {
+			requestOptions = options;
+			const stream = createAssistantMessageEventStream();
+			queueMicrotask(() =>
+				stream.push({ type: "done", reason: "stop", message: response([{ type: "text", text: "summary" }]) }),
+			);
+			return stream;
+		};
+
+		await generateBranchSummary(entries, {
+			model,
+			signal: new AbortController().signal,
+			streamFn,
+			reserveTokens: 1024,
+		});
+
+		expect(requestOptions?.maxTokens).toBe(1024);
+	});
+
 	it("rejects tool calls from branch summaries", async () => {
 		const streamFn: StreamFn = () => {
 			const stream = createAssistantMessageEventStream();

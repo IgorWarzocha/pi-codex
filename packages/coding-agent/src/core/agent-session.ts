@@ -29,6 +29,7 @@ import { contentText } from "@earendil-works/pi-ai";
 import type {
 	AssistantMessage,
 	AuthResult,
+	Context,
 	ImageContent,
 	Model,
 	ProviderHeaders,
@@ -63,6 +64,7 @@ import {
 	estimateTokens,
 	generateBranchSummary,
 	prepareCompaction,
+	type SummarizationRequestConfig,
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.ts";
@@ -380,6 +382,8 @@ export class AgentSession {
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _systemPromptOverride?: string;
+	private _latestProviderContext?: { context: Context; model: Model<any> };
+	private _previousContextPrepared?: Agent["onContextPrepared"];
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -396,6 +400,8 @@ export class AgentSession {
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
+		this._previousContextPrepared = this.agent.onContextPrepared;
+		this.agent.onContextPrepared = this._captureProviderContext;
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
@@ -473,6 +479,59 @@ export class AgentSession {
 		} catch {
 			return { model };
 		}
+	}
+
+	private _captureProviderContext = (context: Context, model: Model<any>): void => {
+		this._previousContextPrepared?.(context, model);
+		this._latestProviderContext = {
+			model,
+			context: {
+				...context,
+				messages: context.messages.slice(),
+				tools: context.tools?.slice(),
+			},
+		};
+	};
+
+	private _invalidateProviderContext(): void {
+		this._latestProviderContext = undefined;
+	}
+
+	private async _appendToProviderContext(message: AgentMessage): Promise<void> {
+		if (!this._latestProviderContext) return;
+		this._latestProviderContext.context.messages.push(...(await this.agent.convertToLlm([message])));
+	}
+
+	private async _getSummarizationRequestConfig(signal: AbortSignal): Promise<SummarizationRequestConfig> {
+		const model = this.model!;
+		let context: Context;
+		if (this._latestProviderContext && modelsAreEqual(this._latestProviderContext.model, model)) {
+			context = {
+				...this._latestProviderContext.context,
+				messages: this._latestProviderContext.context.messages.slice(),
+				tools: this._latestProviderContext.context.tools?.slice(),
+			};
+		} else {
+			let messages = this.agent.state.messages;
+			if (this.agent.transformContext) {
+				messages = await this.agent.transformContext(messages, signal);
+			}
+			context = {
+				systemPrompt: this.agent.state.systemPrompt,
+				messages: await this.agent.convertToLlm(messages),
+				tools: this.agent.state.tools.slice(),
+			};
+		}
+
+		return {
+			context,
+			sessionId: this.sessionId,
+			transport: "sse",
+			onPayload: this.agent.onPayload,
+			onResponse: this.agent.onResponse,
+			thinkingBudgets: this.agent.thinkingBudgets,
+			maxRetryDelayMs: this.agent.maxRetryDelayMs,
+		};
 	}
 
 	/**
@@ -671,6 +730,7 @@ export class AgentSession {
 
 		// Handle session persistence
 		if (event.type === "message_end") {
+			await this._appendToProviderContext(event.message);
 			// Check if this is a custom message from extensions
 			if (event.message.role === "custom") {
 				// Persist as CustomMessageEntry
@@ -892,6 +952,10 @@ export class AgentSession {
 		this._extensionRunner.invalidate(
 			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
 		);
+		if (this.agent.onContextPrepared === this._captureProviderContext) {
+			this.agent.onContextPrepared = this._previousContextPrepared;
+		}
+		this._invalidateProviderContext();
 		this._disconnectFromAgent();
 		this._eventListeners = [];
 		cleanupSessionResources(this.sessionId);
@@ -968,6 +1032,7 @@ export class AgentSession {
 	 * Changes take effect on the next agent turn.
 	 */
 	setActiveToolsByName(toolNames: string[]): void {
+		this._invalidateProviderContext();
 		const tools: AgentTool[] = [];
 		const validToolNames: string[] = [];
 		for (const name of toolNames) {
@@ -1296,10 +1361,12 @@ export class AgentSession {
 			}
 			// Apply extension-modified system prompt, or reset to base
 			if (result?.systemPrompt !== undefined) {
+				this._invalidateProviderContext();
 				this._systemPromptOverride = result.systemPrompt;
 				this.agent.state.systemPrompt = result.systemPrompt;
 			} else {
 				// Ensure we're using the base prompt (in case previous turn had modifications)
+				this._invalidateProviderContext();
 				this._systemPromptOverride = undefined;
 				this.agent.state.systemPrompt = this._baseSystemPrompt;
 			}
@@ -1514,6 +1581,7 @@ export class AgentSession {
 	}
 
 	private _appendCustomMessage(appMessage: CustomMessage): void {
+		this._invalidateProviderContext();
 		this.agent.state.messages.push(appMessage);
 		this.sessionManager.appendCustomMessageEntry(
 			appMessage.customType,
@@ -1661,6 +1729,7 @@ export class AgentSession {
 		}
 
 		const previousModel = this.model;
+		this._invalidateProviderContext();
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(model);
 		this.agent.state.model = model;
 		this.sessionManager.appendModelChange(model.provider, model.id);
@@ -1729,6 +1798,7 @@ export class AgentSession {
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.model, next.thinkingLevel);
 
 		// Apply model
+		this._invalidateProviderContext();
 		this.agent.state.model = next.model;
 		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
 		if (options.persist) {
@@ -1764,6 +1834,7 @@ export class AgentSession {
 		const nextModel = availableModels[nextIndex];
 
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(nextModel);
+		this._invalidateProviderContext();
 		this.agent.state.model = nextModel;
 		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
 		if (options.persist) {
@@ -1907,6 +1978,7 @@ export class AgentSession {
 		env: Record<string, string> | undefined,
 		reason: "manual" | "threshold" | "overflow",
 	): Promise<CompactionResult> {
+		const requestConfig = await this._getSummarizationRequestConfig(signal);
 		return compact(
 			preparation,
 			requestModel,
@@ -1919,7 +1991,7 @@ export class AgentSession {
 			env,
 			this.settingsManager.getRetrySettings(),
 			this._summarizationRetryCallbacks({ source: "compaction", reason }),
-			undefined, // sessionId
+			requestConfig,
 		);
 	}
 
@@ -2031,6 +2103,7 @@ export class AgentSession {
 			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension, usage);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
+			this._invalidateProviderContext();
 			this.agent.state.messages = sessionContext.messages;
 			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
 
@@ -2196,6 +2269,7 @@ export class AgentSession {
 			this._overflowRecoveryAttempted = true;
 			const messages = this.agent.state.messages;
 			if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+				this._invalidateProviderContext();
 				this.agent.state.messages = messages.slice(0, -1);
 			}
 			return await this._runAutoCompaction("overflow", willRetry);
@@ -2356,6 +2430,7 @@ export class AgentSession {
 			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension, usage);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
+			this._invalidateProviderContext();
 			this.agent.state.messages = sessionContext.messages;
 			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
 
@@ -2392,6 +2467,7 @@ export class AgentSession {
 				// leaving an assistant as the final message. agent.continue() rejects that state, so remove
 				// the retriable error or truncated-length response again before continuing the interrupted turn.
 				if (lastMsg?.role === "assistant" && (lastMsg.stopReason === "error" || lastMsg.stopReason === "length")) {
+					this._invalidateProviderContext();
 					this.agent.state.messages = messages.slice(0, -1);
 				}
 				return true;
@@ -2489,6 +2565,7 @@ export class AgentSession {
 
 		this._resourceLoader.extendResources(extensionPaths);
 		this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
+		this._invalidateProviderContext();
 		this.agent.state.systemPrompt = this._baseSystemPrompt;
 	}
 
@@ -2541,6 +2618,7 @@ export class AgentSession {
 			return;
 		}
 
+		this._invalidateProviderContext();
 		this.agent.state.model = refreshedModel;
 	}
 
@@ -2918,6 +2996,7 @@ export class AgentSession {
 		// Remove error message from agent state (keep in session for history)
 		const messages = this.agent.state.messages;
 		if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+			this._invalidateProviderContext();
 			this.agent.state.messages = messages.slice(0, -1);
 		}
 
@@ -3037,6 +3116,7 @@ export class AgentSession {
 			this._pendingBashMessages.push(bashMessage);
 		} else {
 			// Add to agent state immediately
+			this._invalidateProviderContext();
 			this.agent.state.messages.push(bashMessage);
 
 			// Save to session
@@ -3072,6 +3152,7 @@ export class AgentSession {
 
 		for (const bashMessage of this._pendingBashMessages) {
 			// Add to agent state
+			this._invalidateProviderContext();
 			this.agent.state.messages.push(bashMessage);
 
 			// Save to session
@@ -3202,6 +3283,7 @@ export class AgentSession {
 				const model = this.model!;
 				const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
 				const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
+				const requestConfig = await this._getSummarizationRequestConfig(this._branchSummaryAbortController.signal);
 				const result = await generateBranchSummary(entriesToSummarize, {
 					model: requestModel,
 					apiKey,
@@ -3214,6 +3296,7 @@ export class AgentSession {
 					streamFn: this.agent.streamFunction,
 					retry: this.settingsManager.getRetrySettings(),
 					callbacks: this._summarizationRetryCallbacks({ source: "branchSummary" }),
+					requestConfig,
 				});
 				if (result.aborted) {
 					return { cancelled: true, aborted: true };
@@ -3283,6 +3366,7 @@ export class AgentSession {
 
 			// Update agent state
 			const sessionContext = this.sessionManager.buildSessionContext();
+			this._invalidateProviderContext();
 			this.agent.state.messages = sessionContext.messages;
 
 			// Emit session_tree event

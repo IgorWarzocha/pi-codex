@@ -8,7 +8,7 @@
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { RetryCallbacks, RetryPolicy } from "@earendil-works/pi-ai";
 import { contentText } from "@earendil-works/pi-ai";
-import type { Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
+import type { Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,
@@ -16,7 +16,13 @@ import {
 	createCustomMessage,
 } from "../messages.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
-import { completeSummarization, estimateTokens, getSummarizationFailure } from "./compaction.ts";
+import {
+	completeSummarization,
+	estimateTokens,
+	getSummarizationFailure,
+	type SummarizationRequestConfig,
+} from "./compaction.ts";
+import { buildSummaryRequestContext } from "./summary-request.ts";
 import {
 	computeFileLists,
 	createFileOps,
@@ -87,6 +93,8 @@ export interface GenerateBranchSummaryOptions {
 	retry?: RetryPolicy;
 	/** Optional callbacks for retry reporting (e.g. TUI retry indicators). */
 	callbacks?: RetryCallbacks;
+	/** Prepared normal request context and routing options used by AgentSession. */
+	requestConfig?: SummarizationRequestConfig;
 }
 
 // ============================================================================
@@ -306,6 +314,7 @@ export async function generateBranchSummary(
 		streamFn,
 		retry,
 		callbacks,
+		requestConfig,
 	} = options;
 
 	// Token budget = context window minus reserved space for prompt + response
@@ -318,11 +327,6 @@ export async function generateBranchSummary(
 		return { summary: "No content to summarize" };
 	}
 
-	// Transform to LLM-compatible messages, then serialize to text
-	// Serialization prevents the model from treating it as a conversation to continue
-	const llmMessages = convertToLlm(messages);
-	const conversationText = serializeConversation(llmMessages);
-
 	// Build prompt
 	let instructions: string;
 	if (replaceInstructions && customInstructions) {
@@ -332,7 +336,12 @@ export async function generateBranchSummary(
 	} else {
 		instructions = BRANCH_SUMMARY_PROMPT;
 	}
-	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${instructions}`;
+	let promptText = instructions;
+	if (!requestConfig) {
+		const llmMessages = convertToLlm(messages);
+		const conversationText = serializeConversation(llmMessages);
+		promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${instructions}`;
+	}
 
 	const summarizationMessages = [
 		{
@@ -342,14 +351,28 @@ export async function generateBranchSummary(
 		},
 	];
 
-	const maxTokens = Math.min(4096, model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY);
+	const maxTokens = Math.min(reserveTokens, 4096, model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY);
 
 	// Call LLM for summarization. Prefer the session stream function so SDK
 	// request behavior (timeouts, retries, attribution headers) stays consistent
 	// without running through agent state/events. Retried via completeSummarization
 	// so transient stream drops reuse the configured retry policy.
-	const context = { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages };
-	const requestOptions: SimpleStreamOptions = { apiKey, headers, env, signal, maxTokens };
+	const context: Context = requestConfig
+		? buildSummaryRequestContext(requestConfig.context, promptText, contextWindow, reserveTokens)
+		: { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages };
+	const requestOptions: SimpleStreamOptions = {
+		apiKey,
+		headers,
+		env,
+		signal,
+		maxTokens,
+		sessionId: requestConfig?.sessionId,
+		transport: requestConfig?.transport,
+		onPayload: requestConfig?.onPayload,
+		onResponse: requestConfig?.onResponse,
+		thinkingBudgets: requestConfig?.thinkingBudgets,
+		maxRetryDelayMs: requestConfig?.maxRetryDelayMs,
+	};
 	const response = await completeSummarization(model, context, requestOptions, streamFn, retry, callbacks);
 
 	// Check if aborted or errored

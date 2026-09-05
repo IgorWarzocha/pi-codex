@@ -281,7 +281,7 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.faux.state.callCount).toBe(1);
 	});
 
-	it("uses the standalone compaction request context", async () => {
+	it("prepares a structured compaction request when no provider snapshot exists", async () => {
 		const harness = await createHarness({ settings: { compaction: { keepRecentTokens: 1 } } });
 		harnesses.push(harness);
 		seedCompactableSession(harness);
@@ -300,13 +300,14 @@ describe("AgentSession compaction characterization", () => {
 
 		await harness.session.compact();
 
-		expect(transformContext).not.toHaveBeenCalled();
-		expect(requestContext?.systemPrompt).not.toBe(harness.session.agent.state.systemPrompt);
-		expect(requestContext?.tools).toBeUndefined();
-		expect(JSON.stringify(requestContext?.messages)).toContain("<conversation>");
-		expect(requestOptions).toMatchObject({ cacheRetention: "none" });
+		expect(transformContext).toHaveBeenCalledOnce();
+		expect(requestContext?.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
+		expect(requestContext?.tools).toEqual(harness.session.agent.state.tools);
+		expect(JSON.stringify(requestContext?.messages)).not.toContain("<conversation>");
+		expect(requestOptions?.cacheRetention).toBeUndefined();
+		expect(requestOptions?.sessionId).toBe(harness.session.sessionId);
 		expect(requestOptions?.sessionId).not.toBe("active-routing-session");
-		expect(requestOptions?.transport).toBeUndefined();
+		expect(requestOptions?.transport).toBe("sse");
 	});
 
 	it("persists usage from pi-generated manual compaction", async () => {

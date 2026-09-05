@@ -102,19 +102,17 @@ describe("generateSummary reasoning options", () => {
 		);
 	});
 
-	it("uses fresh routing sessions without prompt caching", async () => {
+	it("does not invent routing for standalone summaries", async () => {
 		await generateSummary(messages, createModel(false), 2000, "test-key");
 		await generateSummary(messages, createModel(false), 2000, "test-key");
 
 		const requestOptions = completeSimpleMock.mock.calls.map((call) => call[2]);
 		expect(requestOptions).toHaveLength(2);
-		expect(requestOptions.every((options) => options?.cacheRetention === "none")).toBe(true);
-
-		const sessionIds = requestOptions.map((options) => options?.sessionId);
-		expect(sessionIds[0]).not.toBe(sessionIds[1]);
+		expect(requestOptions.every((options) => options?.cacheRetention === undefined)).toBe(true);
+		expect(requestOptions.every((options) => options?.sessionId === undefined)).toBe(true);
 	});
 
-	it("honors caller-supplied routing session and tool choice without prompt caching", async () => {
+	it("honors caller-supplied routing, cache retention, and tool choice", async () => {
 		await completeSummarization(
 			createModel(false),
 			{ systemPrompt: "Summarize", messages: [] },
@@ -123,7 +121,7 @@ describe("generateSummary reasoning options", () => {
 
 		expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({
 			sessionId: "current-routing-session",
-			cacheRetention: "none",
+			cacheRetention: "long",
 			toolChoice: "auto",
 		});
 	});
