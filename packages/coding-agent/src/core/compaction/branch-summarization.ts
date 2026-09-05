@@ -8,15 +8,11 @@
 import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { RetryCallbacks, RetryPolicy } from "@earendil-works/pi-ai";
 import { contentText } from "@earendil-works/pi-ai";
-import type { Context, Model, Usage } from "@earendil-works/pi-ai/compat";
+import type { Model, Usage } from "@earendil-works/pi-ai/compat";
 import { createBranchSummaryMessage, createCompactionSummaryMessage, createCustomMessage } from "../messages.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
-import {
-	completeSummarization,
-	createSummarizationOptions,
-	getSummarizationFailure,
-	type SummarizationRequestConfig,
-} from "./compaction.ts";
+import type { SummarizationRequestConfig } from "./compaction.ts";
+import { completeSummarization, createSummarizationOptions, getSummarizationFailure } from "./compaction.ts";
 import { buildSummaryRequestContext, describeSummaryScope } from "./summary-request.ts";
 import {
 	computeFileLists,
@@ -250,7 +246,7 @@ The following summary structure is REQUIRED. You MUST preserve all headings and 
 - **[Decision]**: [Brief rationale]
 
 ## Next Steps
-1. [Remaining steps already identified in the branch, or "(none recorded)"]
+1. [What should happen next to continue this work]
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
@@ -303,23 +299,15 @@ export async function generateBranchSummary(
 	// request behavior (timeouts, retries, attribution headers) stays consistent
 	// without running through agent state/events. Retried via completeSummarization
 	// so transient stream drops reuse the configured retry policy.
-	const context: Context = buildSummaryRequestContext(
-		requestConfig.context,
-		promptText,
-		model.contextWindow,
-		reserveTokens,
-	);
-	const requestOptions = createSummarizationOptions(
+	const context = buildSummaryRequestContext(requestConfig.context, promptText, model.contextWindow, reserveTokens);
+	const response = await completeSummarization(
 		model,
-		maxTokens,
-		apiKey,
-		headers,
-		env,
-		signal,
-		thinkingLevel,
-		requestConfig,
+		context,
+		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel, requestConfig),
+		streamFn,
+		retry,
+		callbacks,
 	);
-	const response = await completeSummarization(model, context, requestOptions, streamFn, retry, callbacks);
 
 	// Check if aborted or errored
 	if (response.stopReason === "aborted") {

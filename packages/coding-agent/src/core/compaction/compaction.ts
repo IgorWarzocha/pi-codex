@@ -487,7 +487,7 @@ The following summary structure is REQUIRED. You MUST preserve all headings and 
 - **[Decision]**: [Brief rationale]
 
 ## Next Steps
-1. [Remaining steps already identified in the conversation, or "(none recorded)"]
+1. [Ordered list of what should happen next]
 
 ## Critical Context
 - [Any data, examples, or references needed to continue]
@@ -525,7 +525,7 @@ The following summary structure is REQUIRED. You MUST preserve all headings and 
 - **[Decision]**: [Brief rationale] (preserve all previous, add new)
 
 ## Next Steps
-1. [Update previously identified steps based on recorded progress; do not invent new plans]
+1. [Update based on current state]
 
 ## Critical Context
 - [Preserve important context, add new if needed]
