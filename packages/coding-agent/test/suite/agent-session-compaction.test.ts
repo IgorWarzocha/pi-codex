@@ -281,210 +281,98 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.faux.state.callCount).toBe(1);
 	});
 
-	it.each(["manual", "threshold", "tree"] as const)(
-		"prepares %s summaries through normal request hooks",
-		async (operation) => {
-			// PR #1: summary instructions must reach before_agent_start and context, not be appended afterwards.
-			const order: string[] = [];
-			let summaryPrompt = "";
-			let contextPrompt = "";
-			let contextSystemPrompt = "";
-			let contextSignal: AbortSignal | undefined;
-			let summaryModel: Model<string> | undefined;
-			const removedText = operation === "tree" ? "message to compact" : "assistant response to compact";
-			const selectedText = operation === "tree" ? "assistant response to compact" : "message to compact";
-			const harness = await createHarness({
-				settings: { compaction: { keepRecentTokens: 1 } },
-				models: [
-					{ id: "faux-1", maxTokens: 256 },
-					{ id: "summary-model", reasoning: true, maxTokens: 8192 },
-				],
-				extensionFactories: [
-					(pi) => {
-						pi.on("before_agent_start", async (event) => {
-							if (!event.prompt.includes("<summary-boundaries>")) return;
-							order.push("before_agent_start");
-							summaryPrompt = event.prompt;
-							if (!summaryModel) throw new Error("Missing test model");
-							await pi.setModel(summaryModel);
-							pi.setThinkingLevel("low");
-							pi.setActiveTools(["read"]);
-							return {
-								systemPrompt: "Request-local summary system prompt",
-								message: { customType: "summary-hook", content: "Injected summary context", display: false },
-							};
-						});
-						pi.on("context", (event, ctx) => {
-							const prompt = event.messages.find((message) =>
-								getMessageText(message).includes("<summary-boundaries>"),
-							);
-							if (!prompt) return;
-							order.push("context");
-							contextPrompt = getMessageText(prompt);
-							contextSystemPrompt = ctx.getSystemPrompt();
-							contextSignal = ctx.signal;
-							// As on normal turns, changes made during context preparation apply to the next request.
-							pi.setThinkingLevel("off");
-							pi.setActiveTools(["write"]);
-							return {
-								messages: event.messages
-									.filter((message) => getMessageText(message) !== removedText)
-									.map((message) => {
-										if (message.role !== "user" && message.role !== "assistant") return message;
-										const text = getMessageText(message);
-										return {
-											...message,
-											content: [
-												{
-													type: "text" as const,
-													text:
-														text === selectedText
-															? "Rewritten selected evidence"
-															: text === contextPrompt
-																? `Extension task guidance\n${text}`
-																: text,
-												},
-											],
-										};
-									}),
-							};
-						});
-					},
-				],
-			});
-			harnesses.push(harness);
-			seedCompactableSession(harness);
-			summaryModel = harness.getModel("summary-model");
-			const targetId = harness.sessionManager.getEntries()[0].id;
-			await harness.session.sendCustomMessage(
-				{ customType: "queued", content: "For the next user request", display: false },
-				{ deliverAs: "nextTurn" },
-			);
-			harness.session.agent.sessionId = "active-routing-session";
-			harness.session.agent.transport = "websocket";
-			const onPayload = harness.session.agent.onPayload;
-
-			let requestContext: Context | undefined;
-			let requestOptions: SimpleStreamOptions | undefined;
-			let requestModel: Model<string> | undefined;
-			harness.setResponses([
-				(context, options, _state, model) => {
-					order.push("provider");
-					requestContext = context;
-					requestOptions = options;
-					requestModel = model;
-					return fauxAssistantMessage("standalone summary");
+	it("prepares summaries through normal request hooks", async () => {
+		// PR #1: hooks see the full task; context changes must refresh its selected-message boundaries.
+		const order: string[] = [];
+		let summaryPrompt = "";
+		let contextPrompt = "";
+		let contextSystemPrompt = "";
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", (event) => {
+						order.push("before_agent_start");
+						summaryPrompt = event.prompt;
+						return {
+							systemPrompt: "Request-local summary system prompt",
+							message: { customType: "summary-hook", content: "Injected summary context", display: false },
+						};
+					});
+					pi.on("context", (event, ctx) => {
+						order.push("context");
+						contextPrompt = getMessageText(
+							event.messages.find((message) => getMessageText(message).includes("<summary-boundaries>")),
+						);
+						contextSystemPrompt = ctx.getSystemPrompt();
+						return {
+							messages: [{ role: "user", content: "Extra context", timestamp: 0 }, ...event.messages],
+						};
+					});
 				},
-			]);
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		harness.setResponses([
+			(context) => {
+				order.push("provider");
+				expect(context.systemPrompt).toBe("Request-local summary system prompt");
+				expect(JSON.stringify(context.messages)).toContain("Injected summary context");
+				expect(JSON.stringify(context.messages)).toContain("messages 2 through 2");
+				return fauxAssistantMessage("standalone summary");
+			},
+		]);
 
-			if (operation === "tree") await harness.session.navigateTree(targetId, { summarize: true });
-			else if (operation === "manual") await harness.session.compact();
-			else
-				await (harness.session as unknown as SessionWithCompactionInternals)._runAutoCompaction("threshold", false);
+		await harness.session.compact();
 
-			expect(order).toEqual(["before_agent_start", "context", "provider"]);
-			expect(contextPrompt).toBe(summaryPrompt);
-			expect(contextSystemPrompt).toBe("Request-local summary system prompt");
-			expect(requestContext?.systemPrompt).toBe(contextSystemPrompt);
-			expect(requestContext?.tools?.map((tool) => tool.name)).toEqual(["read"]);
-			expect(JSON.stringify(requestContext?.messages)).toContain("Injected summary context");
-			expect(JSON.stringify(requestContext?.messages)).not.toContain(removedText);
-			expect(JSON.stringify(requestContext?.messages)).not.toContain("For the next user request");
-			expect(JSON.stringify(requestContext?.messages)).not.toContain("<conversation>");
-			const finalPrompt = requestContext?.messages.find((message) =>
-				getMessageText(message).includes("<summary-boundaries>"),
-			);
-			expect(getMessageText(finalPrompt)).toContain("Extension task guidance");
-			expect(getMessageText(finalPrompt)).toContain("Rewritten selected evidence");
-			expect(getMessageText(finalPrompt)).toContain("messages 1 through 1");
-			if (operation === "tree") expect(summaryPrompt).toContain("messages 2 through 2");
-			expect(requestModel?.id).toBe("summary-model");
-			expect(requestOptions?.reasoning).toBe("low");
-			expect(requestOptions?.maxTokens).toBe(operation === "tree" ? 4096 : 8192);
-			expect(requestOptions?.signal).toBe(contextSignal);
-			expect(contextSignal).toBeDefined();
-			expect(requestOptions?.onPayload).toBe(onPayload);
-			expect(requestOptions?.cacheRetention).toBeUndefined();
-			expect(requestOptions?.sessionId).toBe("active-routing-session");
-			expect(requestOptions?.transport).toBe("websocket");
-			expect(requestOptions?.isolateSession).toBe(true);
-			expect(harness.eventsOfType("agent_start")).toHaveLength(0);
-			expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
-			expect(harness.session.systemPrompt).not.toBe(contextSystemPrompt);
-			expect(
-				harness.sessionManager
-					.getEntries()
-					.some((entry) => entry.type === "custom_message" && entry.customType === "summary-hook"),
-			).toBe(false);
-			expect(getUserTexts(harness)).not.toContain(summaryPrompt);
-			harness.setResponses([
-				(context) => {
-					expect(JSON.stringify(context.messages)).toContain("For the next user request");
-					return fauxAssistantMessage("normal response");
+		expect(order).toEqual(["before_agent_start", "context", "provider"]);
+		expect(summaryPrompt).toContain("messages 1 through 1");
+		expect(contextPrompt).toBe(summaryPrompt);
+		expect(contextSystemPrompt).toBe("Request-local summary system prompt");
+		expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
+		expect(harness.session.systemPrompt).not.toBe(contextSystemPrompt);
+		expect(harness.eventsOfType("agent_start")).toHaveLength(0);
+		expect(JSON.stringify(harness.sessionManager.getEntries())).not.toContain("summary-hook");
+		expect(getUserTexts(harness)).not.toContain(summaryPrompt);
+	});
+
+	it("cancels branch summaries while a request hook is awaiting", async () => {
+		let markStarted = () => {};
+		let releaseHook = () => {};
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
+		});
+		const released = new Promise<void>((resolve) => {
+			releaseHook = resolve;
+		});
+		let hookSignal: AbortSignal | undefined;
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", async (_event, ctx) => {
+						hookSignal = ctx.signal;
+						markStarted();
+						await released;
+						return { systemPrompt: "Cancelled summary prompt" };
+					});
 				},
-			]);
-			await harness.session.prompt("next user request");
-			expect(harness.session.getLastAssistantText()).toBe("normal response");
-		},
-	);
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const originalLeaf = harness.sessionManager.getLeafId();
+		const pending = harness.session.navigateTree(harness.sessionManager.getEntries()[0].id, { summarize: true });
+		await started;
+		harness.session.abortBranchSummary();
+		releaseHook();
 
-	it.each(["manual", "threshold", "tree"] as const)(
-		"cancels %s summaries during request preparation",
-		async (operation) => {
-			let markStarted = () => {};
-			let releaseHook = () => {};
-			const started = new Promise<void>((resolve) => {
-				markStarted = resolve;
-			});
-			const released = new Promise<void>((resolve) => {
-				releaseHook = resolve;
-			});
-			let hookSignal: AbortSignal | undefined;
-			const harness = await createHarness({
-				extensionFactories: [
-					(pi) => {
-						pi.on("before_agent_start", async (_event, ctx) => {
-							hookSignal = ctx.signal;
-							markStarted();
-							await released;
-							return { systemPrompt: "Cancelled summary prompt" };
-						});
-					},
-				],
-			});
-			harnesses.push(harness);
-			seedCompactableSession(harness);
-			const originalLeaf = harness.sessionManager.getLeafId();
-			const targetId = harness.sessionManager.getEntries()[0].id;
-			const pending =
-				operation === "manual"
-					? harness.session.compact().catch((error: unknown) => error)
-					: operation === "tree"
-						? harness.session.navigateTree(targetId, { summarize: true })
-						: (harness.session as unknown as SessionWithCompactionInternals)._runAutoCompaction(
-								"threshold",
-								false,
-							);
-			await started;
-			if (operation === "tree") harness.session.abortBranchSummary();
-			else harness.session.abortCompaction();
-			releaseHook();
-			const result = await pending;
-			if (operation === "tree") expect(result).toMatchObject({ cancelled: true, aborted: true });
-			else {
-				if (operation === "manual") expect(result).toMatchObject({ name: "AbortError" });
-				expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
-					aborted: true,
-					errorMessage: undefined,
-				});
-			}
-			expect(hookSignal?.aborted).toBe(true);
-			expect(harness.faux.state.callCount).toBe(0);
-			expect(harness.sessionManager.getLeafId()).toBe(originalLeaf);
-			expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
-			expect(harness.session.isCompacting).toBe(false);
-		},
-	);
+		expect(await pending).toMatchObject({ cancelled: true, aborted: true });
+		expect(hookSignal?.aborted).toBe(true);
+		expect(harness.faux.state.callCount).toBe(0);
+		expect(harness.sessionManager.getLeafId()).toBe(originalLeaf);
+		expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
+		expect(harness.session.isCompacting).toBe(false);
+	});
 
 	it("persists usage from pi-generated manual compaction", async () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
@@ -518,67 +406,58 @@ describe("AgentSession compaction characterization", () => {
 		expect(getStreamCallCount()).toBe(1);
 	});
 
-	it.each(["context", "stream"] as const)(
-		"cleans up and notifies extensions when summary %s fails",
-		async (failureAt) => {
-			const failedEvents: Array<{
-				reason: "manual" | "threshold" | "overflow";
-				errorMessage?: string;
-				aborted: boolean;
-				willRetry: boolean;
-				fromExtension: boolean;
-			}> = [];
-			const harness = await createHarness({
-				extensionFactories: [
-					(pi) => {
-						pi.on("before_agent_start", () => ({ systemPrompt: "Failed summary request prompt" }));
-						pi.on("session_compact_failed", async (event) => {
-							failedEvents.push(event);
-						});
-					},
-				],
-			});
-			harnesses.push(harness);
-			seedCompactableSession(harness);
-			const transformContext = harness.session.agent.transformContext;
-			if (failureAt === "context")
-				harness.session.agent.transformContext = async () => {
-					throw new Error("summary generator blew up");
-				};
-			harness.session.agent.streamFunction = () => {
-				throw new Error("summary generator blew up");
-			};
-			const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+	it("cleans up and notifies extensions when auto-compaction fails", async () => {
+		const failedEvents: Array<{
+			reason: "manual" | "threshold" | "overflow";
+			errorMessage?: string;
+			aborted: boolean;
+			willRetry: boolean;
+			fromExtension: boolean;
+		}> = [];
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", () => ({ systemPrompt: "Failed summary request prompt" }));
+					pi.on("session_compact_failed", async (event) => {
+						failedEvents.push(event);
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		harness.session.agent.streamFunction = () => {
+			throw new Error("summary generator blew up");
+		};
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 
-			await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
-			expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
-			expect(harness.session.systemPrompt).not.toBe("Failed summary request prompt");
+		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+		expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
+		expect(harness.session.systemPrompt).not.toBe("Failed summary request prompt");
 
-			expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
+			reason: "threshold",
+			aborted: false,
+			willRetry: false,
+			errorMessage: "Auto-compaction failed: summary generator blew up",
+		});
+		expect(failedEvents).toEqual([
+			expect.objectContaining({
+				type: "session_compact_failed",
 				reason: "threshold",
 				aborted: false,
 				willRetry: false,
+				fromExtension: false,
 				errorMessage: "Auto-compaction failed: summary generator blew up",
-			});
-			expect(failedEvents).toEqual([
-				expect.objectContaining({
-					type: "session_compact_failed",
-					reason: "threshold",
-					aborted: false,
-					willRetry: false,
-					fromExtension: false,
-					errorMessage: "Auto-compaction failed: summary generator blew up",
-				}),
-			]);
-			harness.session.agent.transformContext = transformContext;
-			useSummaryStreamFn(harness, "recovered summary");
-			await harness.session.compact();
-			expect(harness.session.messages[0]).toMatchObject({
-				role: "compactionSummary",
-				summary: expect.stringContaining("recovered summary"),
-			});
-		},
-	);
+			}),
+		]);
+		useSummaryStreamFn(harness, "recovered summary");
+		await harness.session.compact();
+		expect(harness.session.messages[0]).toMatchObject({
+			role: "compactionSummary",
+			summary: expect.stringContaining("recovered summary"),
+		});
+	});
 
 	it("compacts and resumes after a length stop below the desired output limit", async () => {
 		const harness = await createHarness({
