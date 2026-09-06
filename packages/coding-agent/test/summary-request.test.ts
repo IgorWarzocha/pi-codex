@@ -1,6 +1,7 @@
 import type { AssistantMessage, Context, ToolResultMessage } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
+import { estimateContextTokens } from "../../ai/src/utils/estimate.ts";
 import { buildSummaryRequestContext, describeSummaryScope } from "../src/core/compaction/index.ts";
 
 function toolResult(id: string, text: string): ToolResultMessage {
@@ -56,11 +57,14 @@ describe("summary request context", () => {
 	it("shortens tool results newest-first without mutating canonical history", () => {
 		const oldResult = toolResult("old-call", "o".repeat(400));
 		const newestResult = toolResult("new-call", "n".repeat(400));
+		const reply = fauxAssistantMessage("Done", { timestamp: 3 });
+		reply.usage = { ...reply.usage, input: 100_000, totalTokens: 100_000 };
 		const context: Context = {
 			systemPrompt: "s",
-			messages: [toolCall("old-call"), oldResult, toolCall("new-call"), newestResult],
+			messages: [toolCall("old-call"), oldResult, toolCall("new-call"), newestResult, reply],
 		};
 
+		expect(estimateContextTokens(buildSummaryRequestContext(context, "sum", 200_000, 10)).usageTokens).toBe(100_000);
 		const request = buildSummaryRequestContext(context, "sum", 115, 10);
 		const requestOldResult = request.messages[1] as ToolResultMessage;
 		const requestNewestResult = request.messages[3] as ToolResultMessage;
@@ -76,6 +80,10 @@ describe("summary request context", () => {
 		]);
 		expect(oldResult.content).toEqual([{ type: "text", text: "o".repeat(400) }]);
 		expect(newestResult.content).toEqual([{ type: "text", text: "n".repeat(400) }]);
+		// PR #1: stale usage must not consume the output budget after shortening the prefix.
+		expect(estimateContextTokens(request).usageTokens).toBe(0);
+		expect(estimateContextTokens(request).tokens).toBeLessThan(115);
+		expect(reply.usage.totalTokens).toBe(100_000);
 	});
 
 	it("fails when non-tool context cannot fit beside the output reserve", () => {

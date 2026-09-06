@@ -120,6 +120,7 @@ export function buildSummaryRequestContext(
 	};
 
 	let estimatedTokens = estimateContextTokens(context);
+	let firstShortenedIndex = context.messages.length;
 	for (let i = context.messages.length - 2; i >= 0 && estimatedTokens > inputLimit; i--) {
 		const message = context.messages[i];
 		if (message.role !== "toolResult") continue;
@@ -130,6 +131,7 @@ export function buildSummaryRequestContext(
 		if (maxChars >= contentChars) continue;
 
 		context.messages[i] = { ...message, content: shortenToolResultContent(message.content, maxChars) };
+		firstShortenedIndex = i;
 		estimatedTokens = estimateContextTokens(context);
 	}
 
@@ -139,5 +141,21 @@ export function buildSummaryRequestContext(
 		);
 	}
 
+	// Later usage describes the unshortened prefix and would incorrectly clamp summary output.
+	for (let i = firstShortenedIndex + 1; i < context.messages.length; i++) {
+		const message = context.messages[i];
+		if (message.role !== "assistant") continue;
+		context.messages[i] = {
+			...message,
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+		};
+	}
 	return context;
 }
