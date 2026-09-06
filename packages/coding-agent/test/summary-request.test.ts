@@ -22,6 +22,24 @@ function toolCall(id: string): AssistantMessage {
 }
 
 describe("summary request context", () => {
+	it("excludes shared history between selected branch messages and a compaction summary", () => {
+		// Surya's /tree-across-compaction regression fixture.
+		const c = { role: "user" as const, content: "C", timestamp: 0 };
+		const u = { role: "user" as const, content: "U", timestamp: 1 };
+		const a = fauxAssistantMessage("A");
+		const b = toolCall("B");
+		const br = toolResult("B", "BR");
+		const d = toolCall("D");
+		const dr = toolResult("D", "DR");
+		const context = { messages: [c, u, a, b, br, d, dr] };
+		const scope = describeSummaryScope(context, [b, br, c, d, dr]);
+		expect(scope).toContain("Summarize only messages 1 through 1, messages 4 through 7, inclusive");
+		expect(scope).toContain("including gaps between them");
+		expect(scope).not.toContain("messages 1 through 7");
+		const boundaries = scope.split("<summary-boundaries>\n")[1].split("\n</summary-boundaries>")[0];
+		expect(boundaries.split("\n").map((line) => JSON.parse(line).message)).toEqual([1, 4, 7]);
+	});
+
 	it("distinguishes identical replies by identity and rejects ambiguous copies", () => {
 		const first = toolCall("call");
 		const second = structuredClone(first);
