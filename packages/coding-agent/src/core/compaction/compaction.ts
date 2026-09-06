@@ -15,7 +15,7 @@ import {
 	type SessionEntry,
 	sessionEntryToContextMessages,
 } from "../session-manager.ts";
-import { buildSummaryRequestContext, describeSummaryScope } from "./summary-request.ts";
+import { buildSummaryRequestContext, describeSummaryScope, fitSummaryRequestContext } from "./summary-request.ts";
 import {
 	computeFileLists,
 	createFileOps,
@@ -558,8 +558,9 @@ export function createSummarizationOptions(
 	env: Record<string, string> | undefined,
 	signal: AbortSignal | undefined,
 	thinkingLevel: ThinkingLevel | undefined,
-	{ context: _context, ...routing }: SummarizationRequestConfig,
+	requestConfig: SummarizationRequestConfig,
 ): SimpleStreamOptions {
+	const { context: _context, ...routing } = "context" in requestConfig ? requestConfig : { context: undefined };
 	const options: SimpleStreamOptions = { ...routing, maxTokens, signal, apiKey, headers, env };
 	if (model.reasoning && thinkingLevel && thinkingLevel !== "off") {
 		options.reasoning = thinkingLevel;
@@ -590,8 +591,28 @@ export async function completeSummarization(
 	return retryAssistantCall(produce, retry, options.signal, callbacks);
 }
 
-export interface SummarizationRequestConfig {
-	/** Structured context prepared through the normal transform and conversion path. */
+export interface PreparedSummarizationRequest {
+	model: Model<string>;
+	context: Context;
+	options: SimpleStreamOptions;
+	streamFn?: StreamFn;
+	/** Release request-local extension context after success, failure, or cancellation. */
+	dispose?: () => void;
+}
+
+/** A standalone context, or session-owned preparation through the normal request hooks. */
+export type SummarizationRequestConfig =
+	| StaticSummarizationRequestConfig
+	| {
+			prepare: (
+				instructions: string,
+				selected: AgentMessage[],
+				signal?: AbortSignal,
+			) => Promise<PreparedSummarizationRequest>;
+	  };
+
+export interface StaticSummarizationRequestConfig {
+	/** Standalone callers supply their own history and routing, without AgentSession hooks. */
 	context: Context;
 	sessionId?: string;
 	transport?: SimpleStreamOptions["transport"];
@@ -599,6 +620,57 @@ export interface SummarizationRequestConfig {
 	onResponse?: SimpleStreamOptions["onResponse"];
 	thinkingBudgets?: SimpleStreamOptions["thinkingBudgets"];
 	maxRetryDelayMs?: number;
+}
+
+/** Own preparation, sizing, isolated execution, and cleanup for one summary response. */
+export async function runSummarizationRequest(
+	requestConfig: SummarizationRequestConfig,
+	instructions: string,
+	selected: AgentMessage[],
+	model: Model<string>,
+	reserveTokens: number,
+	options: SimpleStreamOptions,
+	streamFn?: StreamFn,
+	retry?: RetryPolicy,
+	callbacks?: RetryCallbacks,
+): Promise<AssistantMessage> {
+	options.signal?.throwIfAborted();
+	const request: PreparedSummarizationRequest =
+		"prepare" in requestConfig
+			? await requestConfig.prepare(instructions, selected, options.signal)
+			: {
+					model,
+					context: buildSummaryRequestContext(
+						requestConfig.context,
+						`${instructions}\n\n${describeSummaryScope(requestConfig.context, selected)}`,
+						model.contextWindow,
+						reserveTokens,
+					),
+					options,
+					streamFn,
+				};
+	try {
+		options.signal?.throwIfAborted();
+		return await completeSummarization(
+			request.model,
+			"prepare" in requestConfig
+				? fitSummaryRequestContext(request.context, request.model.contextWindow, reserveTokens)
+				: request.context,
+			{
+				...request.options,
+				signal: options.signal,
+				maxTokens: Math.min(
+					options.maxTokens ?? Number.POSITIVE_INFINITY,
+					request.model.maxTokens > 0 ? request.model.maxTokens : Number.POSITIVE_INFINITY,
+				),
+			},
+			request.streamFn,
+			retry,
+			callbacks,
+		);
+	} finally {
+		request.dispose?.();
+	}
 }
 
 /**
@@ -626,10 +698,7 @@ export async function generateSummaryWithUsage(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 ): Promise<{ text: string; usage: Usage }> {
-	const maxTokens = Math.min(
-		Math.floor(0.8 * reserveTokens),
-		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
-	);
+	const maxTokens = Math.floor(0.8 * reserveTokens);
 
 	// Use update prompt if we have a previous summary, otherwise initial prompt
 	let basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
@@ -641,7 +710,7 @@ export async function generateSummaryWithUsage(
 	if (previousSummary) {
 		promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
 	}
-	promptText += `${basePrompt}\n\n${describeSummaryScope(requestConfig.context, currentMessages)}`;
+	promptText += basePrompt;
 
 	const completionOptions = createSummarizationOptions(
 		model,
@@ -654,9 +723,12 @@ export async function generateSummaryWithUsage(
 		requestConfig,
 	);
 
-	const response = await completeSummarization(
+	const response = await runSummarizationRequest(
+		requestConfig,
+		promptText,
+		currentMessages,
 		model,
-		buildSummaryRequestContext(requestConfig.context, promptText, model.contextWindow, reserveTokens),
+		reserveTokens,
 		completionOptions,
 		streamFn,
 		retry,
@@ -932,15 +1004,14 @@ async function generateTurnPrefixSummary(
 	retry?: RetryPolicy,
 	callbacks?: RetryCallbacks,
 ): Promise<{ text: string; usage: Usage }> {
-	const maxTokens = Math.min(
-		Math.floor(0.5 * reserveTokens),
-		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
-	); // Smaller budget for turn prefix
-	const promptText = `${TURN_PREFIX_SUMMARIZATION_PROMPT}\n\n${describeSummaryScope(requestConfig.context, messages)}`;
+	const maxTokens = Math.floor(0.5 * reserveTokens); // Smaller budget for turn prefix
 
-	const response = await completeSummarization(
+	const response = await runSummarizationRequest(
+		requestConfig,
+		TURN_PREFIX_SUMMARIZATION_PROMPT,
+		messages,
 		model,
-		buildSummaryRequestContext(requestConfig.context, promptText, model.contextWindow, reserveTokens),
+		reserveTokens,
 		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel, requestConfig),
 		streamFn,
 		retry,

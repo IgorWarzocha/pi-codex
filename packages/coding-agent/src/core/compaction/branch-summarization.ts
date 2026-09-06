@@ -8,12 +8,11 @@
 import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { RetryCallbacks, RetryPolicy } from "@earendil-works/pi-ai";
 import { contentText } from "@earendil-works/pi-ai";
-import type { Model, Usage } from "@earendil-works/pi-ai/compat";
+import type { AssistantMessage, Model, Usage } from "@earendil-works/pi-ai/compat";
 import { createBranchSummaryMessage, createCompactionSummaryMessage, createCustomMessage } from "../messages.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
 import type { SummarizationRequestConfig } from "./compaction.ts";
-import { completeSummarization, createSummarizationOptions, getSummarizationFailure } from "./compaction.ts";
-import { buildSummaryRequestContext, describeSummaryScope } from "./summary-request.ts";
+import { createSummarizationOptions, getSummarizationFailure, runSummarizationRequest } from "./compaction.ts";
 import {
 	computeFileLists,
 	createFileOps,
@@ -291,26 +290,32 @@ export async function generateBranchSummary(
 	} else {
 		instructions = BRANCH_SUMMARY_PROMPT;
 	}
-	const promptText = `${instructions}\n\n${describeSummaryScope(requestConfig.context, messages)}`;
-
-	const maxTokens = Math.min(reserveTokens, 4096, model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY);
+	const maxTokens = Math.min(reserveTokens, 4096);
 
 	// Call LLM for summarization. Prefer the session stream function so SDK
 	// request behavior (timeouts, retries, attribution headers) stays consistent
 	// without running through agent state/events. Retried via completeSummarization
 	// so transient stream drops reuse the configured retry policy.
-	const context = buildSummaryRequestContext(requestConfig.context, promptText, model.contextWindow, reserveTokens);
-	const response = await completeSummarization(
-		model,
-		context,
-		createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel, requestConfig),
-		streamFn,
-		retry,
-		callbacks,
-	);
+	let response: AssistantMessage;
+	try {
+		response = await runSummarizationRequest(
+			requestConfig,
+			instructions,
+			messages,
+			model,
+			reserveTokens,
+			createSummarizationOptions(model, maxTokens, apiKey, headers, env, signal, thinkingLevel, requestConfig),
+			streamFn,
+			retry,
+			callbacks,
+		);
+	} catch (error) {
+		if (signal.aborted) return { aborted: true };
+		throw error;
+	}
 
 	// Check if aborted or errored
-	if (response.stopReason === "aborted") {
+	if (signal.aborted || response.stopReason === "aborted") {
 		return { aborted: true };
 	}
 	const failure = getSummarizationFailure(response, "Branch summarization");

@@ -2,7 +2,11 @@ import type { AssistantMessage, Context, ToolResultMessage } from "@earendil-wor
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { estimateContextTokens } from "../../ai/src/utils/estimate.ts";
-import { buildSummaryRequestContext, describeSummaryScope } from "../src/core/compaction/index.ts";
+import {
+	buildSummaryRequestContext,
+	describeSummaryScope,
+	finalizeSummaryScope,
+} from "../src/core/compaction/index.ts";
 
 function toolResult(id: string, text: string): ToolResultMessage {
 	return {
@@ -39,9 +43,20 @@ describe("summary request context", () => {
 		expect(scope).not.toContain("messages 1 through 7");
 		const boundaries = scope.split("<summary-boundaries>\n")[1].split("\n</summary-boundaries>")[0];
 		expect(boundaries.split("\n").map((line) => JSON.parse(line).message)).toEqual([1, 4, 7]);
+		// Context filtering is authoritative, including when it removes selected messages.
+		expect(describeSummaryScope({ messages: [c] }, [c, u])).toContain("messages 1 through 1");
 	});
 
 	it("distinguishes identical replies by identity and rejects ambiguous copies", () => {
+		// PR #1: extension context preparation clones messages, even without context handlers.
+		const firstResult = toolResult("first", "OK");
+		const secondResult = toolResult("second", "OK");
+		expect(
+			describeSummaryScope({ messages: structuredClone([firstResult, secondResult]) }, [secondResult]),
+		).toContain("messages 2 through 2");
+		expect(() => describeSummaryScope({ messages: structuredClone([firstResult]) }, [secondResult])).toThrow(
+			"not present",
+		);
 		const first = toolCall("call");
 		const second = structuredClone(first);
 		const context = { messages: [first, second] };
@@ -52,6 +67,16 @@ describe("summary request context", () => {
 		expect(() => describeSummaryScope(context, [{ role: "user", content: "absent", timestamp: 3 }])).toThrow(
 			"not present",
 		);
+		const user = { role: "user" as const, content: "original evidence", timestamp: 3 };
+		const scope = describeSummaryScope({ messages: [user] }, [user]);
+		const prepared: Context = {
+			messages: [
+				{ ...user, content: "rewritten evidence" },
+				{ ...user, content: `Summary task\n${scope}` },
+			],
+		};
+		expect(finalizeSummaryScope(prepared, [user], scope, 3).messages[1].content).toContain("rewritten evidence");
+		expect(prepared.messages[1].content).toContain("original evidence");
 	});
 
 	it("shortens tool results newest-first without mutating canonical history", () => {

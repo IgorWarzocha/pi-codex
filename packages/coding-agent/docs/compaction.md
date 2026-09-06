@@ -20,7 +20,7 @@ Pi has two summarization mechanisms:
 | Compaction | Context exceeds threshold, or `/compact` | Summarize old messages to free up context |
 | Branch summarization | `/tree` navigation | Preserve context when switching branches |
 
-Both use the same structured summary format and track file operations cumulatively. Compaction and branch-summary requests use fresh routing session IDs and, where supported by the provider, disable prompt-cache writes because these one-off prompts are unlikely to be reused.
+Both use structured summaries and track file operations cumulatively. Built-in summary requests retain the active routing session ID and normal cache policy. They isolate local transport continuation so the summary response does not advance the main conversation's connection state.
 
 ## Compaction
 
@@ -157,7 +157,7 @@ When you use `/tree` to navigate to a different branch, Pi offers to summarize t
 
 1. **Find common ancestor**: Deepest node shared by old and new positions
 2. **Collect entries**: Walk from old leaf back to common ancestor
-3. **Prepare with budget**: Include messages up to token budget (newest first)
+3. **Prepare scope**: Select the abandoned entries, including earlier compaction summaries when present
 4. **Generate summary**: Call LLM with structured format
 5. **Append entry**: Save `BranchSummaryEntry` at navigation point
 
@@ -254,21 +254,21 @@ path/to/changed.ts
 </modified-files>
 ```
 
-### Message Serialization
+### Request Preparation
 
-Before summarization, messages are serialized to text via [`serializeConversation()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/utils.ts):
+Built-in summaries append a summarization request to structured conversation history instead of flattening the history into a text transcript. The full request goes through `before_agent_start`, then the normal `context` transform and message conversion, then provider preparation and payload hooks. Each summary in a split-turn compaction is prepared separately. Model, thinking level, tools, and routing are captured after `before_agent_start`.
 
-```
-[User]: What they said
-[Assistant thinking]: Internal reasoning
-[Assistant]: Response text
-[Assistant tool calls]: read(path="foo.ts"); edit(path="bar.ts", ...)
-[Tool result]: Output from tool
-```
+The hook's returned system prompt and injected messages belong only to the summary request. During that request, extension `ctx.getSystemPrompt()` and `ctx.signal` describe the summary, not the paused agent turn. Explicit extension actions such as `pi.setModel()` still affect the live session, as they do during normal prompts.
 
-This prevents the model from treating it as a conversation to continue.
+Summary requests do not dispatch input commands, consume queued user messages, emit normal agent-turn events, or execute tools. The request and reply are not appended as conversation messages. Only the resulting compaction or branch-summary entry is saved.
 
-Tool results are truncated to 2000 characters during serialization. Content beyond that limit is replaced with a marker indicating how many characters were truncated. This keeps summarization requests within reasonable token budgets, since tool results (especially from `read` and `bash`) are typically the largest contributors to context size.
+After the context hook, Pi updates only its generated scope trailer to identify the selected ranges in the transformed context. It does not restore filtered history or rerun hooks. Context transforms must preserve that trailer and the summary request's timestamp. Retained history messages must preserve their role and timestamp, plus `toolCallId` for tool results.
+
+If a hook filters out some selected messages, the summary covers only the surviving selection. Filtered messages remain in the session log. If no selected messages survive, the request fails rather than summarizing unrelated context.
+
+These ranges describe Pi's prepared message list, not an arbitrary provider rewrite. Extensions that replace history with a provider-native checkpoint must supply their own summary through `session_before_compact` or `session_before_tree`.
+
+After context preparation, Pi checks the estimated input size with output headroom reserved. If needed, it shortens copied tool results newest-first to preserve the longest unchanged prefix. Stored history is not shortened. The request fails visibly if it still cannot fit. Provider payload rewrites happen later and can change the actual request size.
 
 ## Custom Summarization via Extensions
 
