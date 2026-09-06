@@ -25,6 +25,7 @@ import type {
 	PrepareNextTurnContext,
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
+import { prepareAgentContext } from "@earendil-works/pi-agent-core";
 import { contentText } from "@earendil-works/pi-ai";
 import type {
 	AssistantMessage,
@@ -59,10 +60,14 @@ import {
 	calculateContextTokens,
 	collectEntriesForBranchSummary,
 	compact,
+	describeSummaryScope,
 	estimateContextTokens,
 	estimateTokens,
+	finalizeSummaryScope,
 	generateBranchSummary,
+	invalidateSummaryUsage,
 	prepareCompaction,
+	type SummarizationRequestConfig,
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.ts";
@@ -96,7 +101,7 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
-import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
+import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
@@ -380,6 +385,9 @@ export class AgentSession {
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _systemPromptOverride?: string;
+	// Summaries run serially while the normal agent is paused. Extension getters must describe
+	// that request without replacing the running turn's prompt or cancellation signal.
+	private _summaryRequestContext?: { systemPrompt: string; signal?: AbortSignal };
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
@@ -450,13 +458,16 @@ export class AgentSession {
 		throw new Error(formatNoApiKeyFoundMessage(model.provider));
 	}
 
-	private async _getSummarizationRequestAuth(model: Model<any>): Promise<{
+	private async _getSummarizationRequestAuth(
+		model: Model<any>,
+		streamFn = this.agent.streamFunction,
+	): Promise<{
 		model: Model<any>;
 		apiKey?: string;
 		headers?: Record<string, string>;
 		env?: Record<string, string>;
 	}> {
-		if (this.agent.streamFunction === streamSimple) {
+		if (streamFn === streamSimple) {
 			return this._getRequiredRequestAuth(model);
 		}
 
@@ -473,6 +484,71 @@ export class AgentSession {
 		} catch {
 			return { model };
 		}
+	}
+
+	private _getSummarizationRequestConfig(): SummarizationRequestConfig {
+		return {
+			prepare: async (instructions, selected, signal) => {
+				if (this._summaryRequestContext) throw new Error("A summary request is already being prepared");
+				this._summaryRequestContext = { systemPrompt: this._baseSystemPrompt, signal };
+				try {
+					const scope = describeSummaryScope({ messages: convertToLlm(this.agent.state.messages) }, selected);
+					const prompt = `${instructions}\n\n${scope}`;
+					const start = await this._prepareAgentStart(prompt);
+					this._summaryRequestContext.systemPrompt = start.systemPrompt;
+					signal?.throwIfAborted();
+					const model = this.model;
+					if (!model) throw new Error(formatNoModelSelectedMessage());
+					const thinkingLevel = this.thinkingLevel;
+					const streamFn = this.agent.streamFunction;
+					const history = this.agent.state.messages.slice();
+					// Snapshot before hooks, including those that rewrite messages in place.
+					const originalMessages = convertToLlm(history).map((message) => JSON.stringify(message));
+					const tools = this.agent.state.tools.slice();
+					const routing = {
+						sessionId: this.agent.sessionId,
+						transport: this.agent.transport,
+						onPayload: this.agent.onPayload,
+						onResponse: this.agent.onResponse,
+						thinkingBudgets: this.agent.thinkingBudgets,
+						maxRetryDelayMs: this.agent.maxRetryDelayMs,
+					};
+					let context = await prepareAgentContext(
+						{
+							systemPrompt: start.systemPrompt,
+							messages: [...history, ...start.messages],
+							tools,
+						},
+						this.agent,
+						signal,
+					);
+					const changedIndex = context.messages.findIndex(
+						(message, index) => JSON.stringify(message) !== originalMessages[index],
+					);
+					if (changedIndex !== -1) context = invalidateSummaryUsage(context, changedIndex);
+					signal?.throwIfAborted();
+					const auth = await this._getSummarizationRequestAuth(model, streamFn);
+					return {
+						model: auth.model,
+						context: finalizeSummaryScope(context, selected, scope, start.messages[0].timestamp),
+						streamFn,
+						dispose: () => {
+							this._summaryRequestContext = undefined;
+						},
+						options: {
+							...routing,
+							apiKey: auth.apiKey,
+							headers: auth.headers,
+							env: auth.env,
+							...(auth.model.reasoning && thinkingLevel !== "off" ? { reasoning: thinkingLevel } : {}),
+						},
+					};
+				} catch (error) {
+					this._summaryRequestContext = undefined;
+					throw error;
+				}
+			},
+		};
 	}
 
 	/**
@@ -928,7 +1004,7 @@ export class AgentSession {
 
 	/** Current effective system prompt (includes any per-turn extension modifications) */
 	get systemPrompt(): string {
-		return this.agent.state.systemPrompt;
+		return this._summaryRequestContext?.systemPrompt ?? this.agent.state.systemPrompt;
 	}
 
 	/** Current retry attempt (0 if not retrying) */
@@ -1102,6 +1178,40 @@ export class AgentSession {
 	// Prompting
 	// =========================================================================
 
+	/** Prepare a user request without committing it to agent state or consuming queues. */
+	private async _prepareAgentStart(
+		text: string,
+		images?: ImageContent[],
+		additionalMessages: AgentMessage[] = [],
+	): Promise<{ messages: AgentMessage[]; systemPrompt: string; systemPromptOverride?: string }> {
+		const messages: AgentMessage[] = [
+			{ role: "user", content: [{ type: "text", text }, ...(images ?? [])], timestamp: Date.now() },
+			...additionalMessages,
+		];
+		const result = await this._extensionRunner.emitBeforeAgentStart(
+			text,
+			images,
+			this._baseSystemPrompt,
+			this._baseSystemPromptOptions,
+		);
+		for (const message of result?.messages ?? []) {
+			messages.push({
+				role: "custom",
+				customType: message.customType,
+				// Untyped extensions can pass null/missing content; normalize at ingestion.
+				content: message.content ?? [],
+				display: message.display,
+				details: message.details,
+				timestamp: Date.now(),
+			});
+		}
+		return {
+			messages,
+			systemPrompt: result?.systemPrompt ?? this._baseSystemPrompt,
+			systemPromptOverride: result?.systemPrompt,
+		};
+	}
+
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		this._isAgentRunActive = true;
 		try {
@@ -1173,7 +1283,7 @@ export class AgentSession {
 				}
 			}
 
-			if (this._compactionAbortController !== undefined) {
+			if (this.isCompacting && !this.isStreaming) {
 				throw new Error(
 					"Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.",
 				);
@@ -1253,56 +1363,12 @@ export class AgentSession {
 				await this._checkCompaction(lastAssistant, false);
 			}
 
-			// Build messages array (custom message if any, then user message)
-			messages = [];
-
-			// Add user message
-			const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: expandedText }];
-			if (currentImages) {
-				userContent.push(...currentImages);
-			}
-			messages.push({
-				role: "user",
-				content: userContent,
-				timestamp: Date.now(),
-			});
-
-			// Inject any pending "nextTurn" messages as context alongside the user message
-			for (const msg of this._pendingNextTurnMessages) {
-				messages.push(msg);
-			}
+			const pendingMessages = this._pendingNextTurnMessages;
 			this._pendingNextTurnMessages = [];
-
-			// Emit before_agent_start extension event
-			const result = await this._extensionRunner.emitBeforeAgentStart(
-				expandedText,
-				currentImages,
-				this._baseSystemPrompt,
-				this._baseSystemPromptOptions,
-			);
-			// Add all custom messages from extensions
-			if (result?.messages) {
-				for (const msg of result.messages) {
-					messages.push({
-						role: "custom",
-						customType: msg.customType,
-						// Untyped extensions can pass null/missing content; normalize at ingestion.
-						content: msg.content ?? [],
-						display: msg.display,
-						details: msg.details,
-						timestamp: Date.now(),
-					});
-				}
-			}
-			// Apply extension-modified system prompt, or reset to base
-			if (result?.systemPrompt !== undefined) {
-				this._systemPromptOverride = result.systemPrompt;
-				this.agent.state.systemPrompt = result.systemPrompt;
-			} else {
-				// Ensure we're using the base prompt (in case previous turn had modifications)
-				this._systemPromptOverride = undefined;
-				this.agent.state.systemPrompt = this._baseSystemPrompt;
-			}
+			const start = await this._prepareAgentStart(expandedText, currentImages, pendingMessages);
+			messages = start.messages;
+			this._systemPromptOverride = start.systemPromptOverride;
+			this.agent.state.systemPrompt = start.systemPrompt;
 		} catch (error) {
 			preflightResult?.(false);
 			throw error;
@@ -1483,6 +1549,11 @@ export class AgentSession {
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
 		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
 	): Promise<void> {
+		if (options?.triggerTurn && options.deliverAs !== "nextTurn" && this.isCompacting && !this.isStreaming) {
+			throw new Error(
+				"Cannot start a turn while compaction is in progress. Wait for compaction to finish and retry.",
+			);
+		}
 		const appMessage = {
 			role: "custom" as const,
 			customType: message.customType,
@@ -1907,8 +1978,10 @@ export class AgentSession {
 		env: Record<string, string> | undefined,
 		reason: "manual" | "threshold" | "overflow",
 	): Promise<CompactionResult> {
+		const requestConfig = this._getSummarizationRequestConfig();
 		return compact(
 			preparation,
+			requestConfig,
 			requestModel,
 			apiKey,
 			headers,
@@ -1919,7 +1992,6 @@ export class AgentSession {
 			env,
 			this.settingsManager.getRetrySettings(),
 			this._summarizationRetryCallbacks({ source: "compaction", reason }),
-			undefined, // sessionId
 		);
 	}
 
@@ -2402,23 +2474,27 @@ export class AgentSession {
 			return this.agent.hasQueuedMessages();
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : "compaction failed";
+			const aborted =
+				this._autoCompactionAbortController?.signal.aborted ||
+				(error instanceof Error && error.name === "AbortError");
 			if (started) {
-				const formattedErrorMessage =
-					reason === "overflow"
+				const formattedErrorMessage = aborted
+					? undefined
+					: reason === "overflow"
 						? `Context overflow recovery failed: ${errorMessage}`
 						: `Auto-compaction failed: ${errorMessage}`;
 				this._emit({
 					type: "compaction_end",
 					reason,
 					result: undefined,
-					aborted: false,
+					aborted,
 					willRetry: false,
 					errorMessage: formattedErrorMessage,
 				});
 				await this._emitSessionCompactFailed({
 					reason,
 					errorMessage: formattedErrorMessage,
-					aborted: false,
+					aborted,
 					willRetry: false,
 					fromExtension,
 				});
@@ -2624,7 +2700,7 @@ export class AgentSession {
 				getScopedModels: () => this._scopedModels,
 				isIdle: () => this.isIdle,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
-				getSignal: () => this.agent.signal,
+				getSignal: () => (this._summaryRequestContext ? this._summaryRequestContext.signal : this.agent.signal),
 				abort: () => {
 					if (this._extensionAbortHandler) {
 						this._extensionAbortHandler();
@@ -3114,6 +3190,9 @@ export class AgentSession {
 		targetId: string,
 		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
+		if (this.isCompacting) {
+			throw new Error("Wait for compaction to finish before navigating the session tree.");
+		}
 		if (this.isStreaming) {
 			throw new Error("Wait for the current response to finish before navigating the session tree.");
 		}
@@ -3202,6 +3281,7 @@ export class AgentSession {
 				const model = this.model!;
 				const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
 				const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
+				const requestConfig = this._getSummarizationRequestConfig();
 				const result = await generateBranchSummary(entriesToSummarize, {
 					model: requestModel,
 					apiKey,
@@ -3211,9 +3291,11 @@ export class AgentSession {
 					customInstructions,
 					replaceInstructions,
 					reserveTokens: branchSummarySettings.reserveTokens,
+					thinkingLevel: this.thinkingLevel,
 					streamFn: this.agent.streamFunction,
 					retry: this.settingsManager.getRetrySettings(),
 					callbacks: this._summarizationRetryCallbacks({ source: "branchSummary" }),
+					requestConfig,
 				});
 				if (result.aborted) {
 					return { cancelled: true, aborted: true };

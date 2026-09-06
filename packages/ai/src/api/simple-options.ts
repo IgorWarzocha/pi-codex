@@ -39,6 +39,7 @@ export function buildBaseOptions(
 		transport: options?.transport,
 		cacheRetention: options?.cacheRetention,
 		sessionId: options?.sessionId,
+		isolateSession: options?.isolateSession,
 		headers: options?.headers,
 		onPayload: options?.onPayload,
 		onResponse: options?.onResponse,

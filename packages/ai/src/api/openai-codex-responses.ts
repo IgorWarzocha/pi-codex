@@ -265,6 +265,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				model.compat?.supportsOpenAIGrammarTools ?? false,
 			);
 			const cacheSessionId = options?.cacheRetention === "none" ? undefined : options?.sessionId;
+			const connectionSessionId = options?.isolateSession ? undefined : cacheSessionId;
 			const codexSessionId = clampOpenAIPromptCacheKey(cacheSessionId);
 			let body = buildRequestBody(model, context, options, codexSessionId, grammarToolInputProperties);
 			const nextBody = await options?.onPayload?.(body, model);
@@ -285,9 +286,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			const websocketConnectTimeoutMs = normalizeTimeoutMs(options?.websocketConnectTimeoutMs);
 			const transport = options?.transport || "auto";
 			let startEmitted = false;
-			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(cacheSessionId);
+			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(connectionSessionId);
 			if (websocketDisabledForSession) {
-				recordWebSocketSseFallback(cacheSessionId);
+				recordWebSocketSseFallback(connectionSessionId);
 			}
 
 			if (transport !== "sse" && !websocketDisabledForSession) {
@@ -313,7 +314,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							},
 							httpTimeoutMs,
 							websocketConnectTimeoutMs,
-							cacheSessionId,
+							connectionSessionId,
 							accountId,
 							grammarToolInputProperties,
 							options,
@@ -355,11 +356,11 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 								requestBytes: new TextEncoder().encode(bodyJson).byteLength,
 							}),
 						);
-						recordWebSocketFailure(cacheSessionId, error);
+						recordWebSocketFailure(connectionSessionId, error);
 						if (websocketStarted) {
 							throw error;
 						}
-						recordWebSocketSseFallback(cacheSessionId);
+						recordWebSocketSseFallback(connectionSessionId);
 						break;
 					}
 				}

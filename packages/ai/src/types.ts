@@ -209,6 +209,12 @@ export interface StreamOptions extends ProviderRequestOptions<Model<Api>> {
 	 */
 	sessionId?: string;
 	/**
+	 * Keep provider-side cache routing, but do not read or update local session
+	 * continuation state. Stateful transports use a request-scoped connection.
+	 * Use for auxiliary requests whose response will not join the main transcript.
+	 */
+	isolateSession?: boolean;
+	/**
 	 * WebSocket connect timeout in milliseconds for providers that support
 	 * WebSocket transports. This covers the connection/open handshake only;
 	 * stream idleness after connection uses timeoutMs.

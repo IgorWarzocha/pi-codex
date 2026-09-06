@@ -50,6 +50,7 @@ describe("issue #6324 branch summary ambient auth", () => {
 		harness.sessionManager.appendMessage(assistantMsg("first reply"));
 		harness.sessionManager.appendMessage(userMsg("abandoned branch work"));
 		harness.sessionManager.appendMessage(assistantMsg("abandoned reply"));
+		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
 
 		const result = await harness.session.navigateTree(targetId, { summarize: true });
 

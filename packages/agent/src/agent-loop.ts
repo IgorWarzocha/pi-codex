@@ -272,17 +272,12 @@ async function runLoop(
 	await emit({ type: "agent_end", messages: newMessages });
 }
 
-/**
- * Stream an assistant response from the LLM.
- * This is where AgentMessage[] gets transformed to Message[] for the LLM.
- */
-async function streamAssistantResponse(
+/** Prepare the structured provider context used by normal turns and auxiliary requests. */
+export async function prepareAgentContext(
 	context: AgentContext,
-	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
-	emit: AgentEventSink,
-	streamFunction: StreamFn,
-): Promise<AssistantMessage> {
+	config: Pick<AgentLoopConfig, "transformContext" | "convertToLlm">,
+	signal?: AbortSignal,
+): Promise<Context> {
 	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
 	let messages = context.messages;
 	if (config.transformContext) {
@@ -293,11 +288,22 @@ async function streamAssistantResponse(
 	const llmMessages = await config.convertToLlm(messages);
 
 	// Build LLM context
-	const llmContext: Context = {
+	return {
 		systemPrompt: context.systemPrompt,
 		messages: llmMessages,
 		tools: context.tools,
 	};
+}
+
+/** Stream an assistant response from the LLM. */
+async function streamAssistantResponse(
+	context: AgentContext,
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
+	streamFunction: StreamFn,
+): Promise<AssistantMessage> {
+	const llmContext = await prepareAgentContext(context, config, signal);
 
 	// Resolve API key (important for expiring tokens)
 	const resolvedApiKey =

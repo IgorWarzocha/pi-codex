@@ -15,6 +15,7 @@ import {
 	prepareCompaction,
 	shouldCompact,
 } from "../src/core/compaction/index.ts";
+import { convertToLlm } from "../src/core/messages.ts";
 import {
 	buildSessionContext,
 	type CompactionEntry,
@@ -549,7 +550,8 @@ describe.skipIf(!process.env.ANTHROPIC_OAUTH_TOKEN)("LLM summarization", () => {
 		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
 		expect(preparation).toBeDefined();
 
-		const compactionResult = await compact(preparation!, model, process.env.ANTHROPIC_OAUTH_TOKEN!);
+		const context = { messages: convertToLlm(buildSessionContext(entries).messages) };
+		const compactionResult = await compact(preparation!, { context }, model, process.env.ANTHROPIC_OAUTH_TOKEN!);
 
 		expect(compactionResult.summary.length).toBeGreaterThan(100);
 		expect(compactionResult.firstKeptEntryId).toBeTruthy();
@@ -570,7 +572,8 @@ describe.skipIf(!process.env.ANTHROPIC_OAUTH_TOKEN)("LLM summarization", () => {
 		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
 		expect(preparation).toBeDefined();
 
-		const compactionResult = await compact(preparation!, model, process.env.ANTHROPIC_OAUTH_TOKEN!);
+		const context = { messages: convertToLlm(loaded.messages) };
+		const compactionResult = await compact(preparation!, { context }, model, process.env.ANTHROPIC_OAUTH_TOKEN!);
 
 		// Simulate appending compaction to entries by creating a proper entry
 		const lastEntry = entries[entries.length - 1];

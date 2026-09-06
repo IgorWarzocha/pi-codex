@@ -1,4 +1,4 @@
-import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
 	type Context,
@@ -10,8 +10,9 @@ import {
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { clampMaxTokensToContext } from "../../../ai/src/api/simple-options.ts";
 import { estimateTokens } from "../../src/core/compaction/index.ts";
-import { createHarness, getUserTexts, type Harness } from "./harness.ts";
+import { createHarness, getMessageText, getUserTexts, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
 	_checkCompaction: (assistantMessage: AssistantMessage, skipAbortedCheck?: boolean) => Promise<boolean>;
@@ -281,32 +282,128 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.faux.state.callCount).toBe(1);
 	});
 
-	it("uses the standalone compaction request context", async () => {
-		const harness = await createHarness({ settings: { compaction: { keepRecentTokens: 1 } } });
+	it("prepares summaries through normal request hooks", async () => {
+		// PR #1: hooks see the full task; context changes must refresh its selected-message boundaries.
+		const order: string[] = [];
+		let summaryPrompt = "";
+		let contextPrompt = "";
+		let contextSystemPrompt = "";
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", (event) => {
+						order.push("before_agent_start");
+						summaryPrompt = event.prompt;
+						return {
+							systemPrompt: "Request-local summary system prompt",
+							message: { customType: "summary-hook", content: "Injected summary context", display: false },
+						};
+					});
+					pi.on("context", (event, ctx) => {
+						order.push("context");
+						contextPrompt = getMessageText(
+							event.messages.find((message) => getMessageText(message).includes("<summary-boundaries>")),
+						);
+						contextSystemPrompt = ctx.getSystemPrompt();
+						return {
+							messages: [{ role: "user", content: "Extra context", timestamp: 0 }, ...event.messages],
+						};
+					});
+				},
+			],
+		});
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-
-		const transformContext = vi.fn(async (messages: AgentMessage[]) => messages);
-		harness.session.agent.transformContext = transformContext;
-		harness.session.agent.sessionId = "active-routing-session";
-		harness.session.agent.transport = "websocket";
-
-		let requestContext: Context | undefined;
-		let requestOptions: SimpleStreamOptions | undefined;
-		useSummaryStreamFn(harness, "standalone summary", (context, options) => {
-			requestContext = context;
-			requestOptions = options;
-		});
+		harness.setResponses([
+			(context) => {
+				order.push("provider");
+				expect(context.systemPrompt).toBe("Request-local summary system prompt");
+				expect(JSON.stringify(context.messages)).toContain("Injected summary context");
+				expect(JSON.stringify(context.messages)).toContain("messages 2 through 2");
+				return fauxAssistantMessage("standalone summary");
+			},
+		]);
 
 		await harness.session.compact();
 
-		expect(transformContext).not.toHaveBeenCalled();
-		expect(requestContext?.systemPrompt).not.toBe(harness.session.agent.state.systemPrompt);
-		expect(requestContext?.tools).toBeUndefined();
-		expect(JSON.stringify(requestContext?.messages)).toContain("<conversation>");
-		expect(requestOptions).toMatchObject({ cacheRetention: "none" });
-		expect(requestOptions?.sessionId).not.toBe("active-routing-session");
-		expect(requestOptions?.transport).toBeUndefined();
+		expect(order).toEqual(["before_agent_start", "context", "provider"]);
+		expect(summaryPrompt).toContain("messages 1 through 1");
+		expect(contextPrompt).toBe(summaryPrompt);
+		expect(contextSystemPrompt).toBe("Request-local summary system prompt");
+		expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
+		expect(harness.session.systemPrompt).not.toBe(contextSystemPrompt);
+		expect(harness.eventsOfType("agent_start")).toHaveLength(0);
+		expect(JSON.stringify(harness.sessionManager.getEntries())).not.toContain("summary-hook");
+		expect(getUserTexts(harness)).not.toContain(summaryPrompt);
+	});
+
+	it("recounts summary input after a context hook removes older history", async () => {
+		// PR #1: retained assistant usage describes the original prefix, not the filtered request.
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 100_000, maxTokens: 8192 }],
+			extensionFactories: [
+				(pi) => {
+					pi.on("context", (event) => ({
+						messages: event.messages.filter((message) => getMessageText(message) !== "message to compact"),
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const reply = harness.session.messages.find((message) => message.role === "assistant");
+		if (reply?.role !== "assistant") throw new Error("Missing seeded reply");
+		reply.usage = createUsage(100_000);
+		harness.setResponses([
+			(context) => {
+				expect(context.messages.some((message) => message.role === "assistant")).toBe(true);
+				expect(clampMaxTokensToContext(harness.getModel(), context, 4096)).toBe(4096);
+				return fauxAssistantMessage("branch summary");
+			},
+		]);
+
+		await harness.session.navigateTree(harness.sessionManager.getEntries()[0].id, { summarize: true });
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(reply.usage.totalTokens).toBe(100_000);
+	});
+
+	it("cancels branch summaries while a request hook is awaiting", async () => {
+		let markStarted = () => {};
+		let releaseHook = () => {};
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
+		});
+		const released = new Promise<void>((resolve) => {
+			releaseHook = resolve;
+		});
+		let hookSignal: AbortSignal | undefined;
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("before_agent_start", async (_event, ctx) => {
+						hookSignal = ctx.signal;
+						markStarted();
+						await released;
+						return { systemPrompt: "Cancelled summary prompt" };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const originalLeaf = harness.sessionManager.getLeafId();
+		const pending = harness.session.navigateTree(harness.sessionManager.getEntries()[0].id, { summarize: true });
+		await started;
+		harness.session.abortBranchSummary();
+		releaseHook();
+
+		expect(await pending).toMatchObject({ cancelled: true, aborted: true });
+		expect(hookSignal?.aborted).toBe(true);
+		expect(harness.faux.state.callCount).toBe(0);
+		expect(harness.sessionManager.getLeafId()).toBe(originalLeaf);
+		expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
+		expect(harness.session.isCompacting).toBe(false);
 	});
 
 	it("persists usage from pi-generated manual compaction", async () => {
@@ -341,7 +438,7 @@ describe("AgentSession compaction characterization", () => {
 		expect(getStreamCallCount()).toBe(1);
 	});
 
-	it("notifies extensions when auto-compaction fails", async () => {
+	it("cleans up and notifies extensions when auto-compaction fails", async () => {
 		const failedEvents: Array<{
 			reason: "manual" | "threshold" | "overflow";
 			errorMessage?: string;
@@ -352,6 +449,7 @@ describe("AgentSession compaction characterization", () => {
 		const harness = await createHarness({
 			extensionFactories: [
 				(pi) => {
+					pi.on("before_agent_start", () => ({ systemPrompt: "Failed summary request prompt" }));
 					pi.on("session_compact_failed", async (event) => {
 						failedEvents.push(event);
 					});
@@ -366,6 +464,8 @@ describe("AgentSession compaction characterization", () => {
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
 
 		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+		expect(harness.session.systemPrompt).toBe(harness.session.agent.state.systemPrompt);
+		expect(harness.session.systemPrompt).not.toBe("Failed summary request prompt");
 
 		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
 			reason: "threshold",
@@ -383,6 +483,12 @@ describe("AgentSession compaction characterization", () => {
 				errorMessage: "Auto-compaction failed: summary generator blew up",
 			}),
 		]);
+		useSummaryStreamFn(harness, "recovered summary");
+		await harness.session.compact();
+		expect(harness.session.messages[0]).toMatchObject({
+			role: "compactionSummary",
+			summary: expect.stringContaining("recovered summary"),
+		});
 	});
 
 	it("compacts and resumes after a length stop below the desired output limit", async () => {
