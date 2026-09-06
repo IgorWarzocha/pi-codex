@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { clampMaxTokensToContext } from "../../../ai/src/api/simple-options.ts";
 import { estimateTokens } from "../../src/core/compaction/index.ts";
 import { createHarness, getMessageText, getUserTexts, type Harness } from "./harness.ts";
 
@@ -334,6 +335,37 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.eventsOfType("agent_start")).toHaveLength(0);
 		expect(JSON.stringify(harness.sessionManager.getEntries())).not.toContain("summary-hook");
 		expect(getUserTexts(harness)).not.toContain(summaryPrompt);
+	});
+
+	it("recounts summary input after a context hook removes older history", async () => {
+		// PR #1: retained assistant usage describes the original prefix, not the filtered request.
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 100_000, maxTokens: 8192 }],
+			extensionFactories: [
+				(pi) => {
+					pi.on("context", (event) => ({
+						messages: event.messages.filter((message) => getMessageText(message) !== "message to compact"),
+					}));
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const reply = harness.session.messages.find((message) => message.role === "assistant");
+		if (reply?.role !== "assistant") throw new Error("Missing seeded reply");
+		reply.usage = createUsage(100_000);
+		harness.setResponses([
+			(context) => {
+				expect(context.messages.some((message) => message.role === "assistant")).toBe(true);
+				expect(clampMaxTokensToContext(harness.getModel(), context, 4096)).toBe(4096);
+				return fauxAssistantMessage("branch summary");
+			},
+		]);
+
+		await harness.session.navigateTree(harness.sessionManager.getEntries()[0].id, { summarize: true });
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(reply.usage.totalTokens).toBe(100_000);
 	});
 
 	it("cancels branch summaries while a request hook is awaiting", async () => {

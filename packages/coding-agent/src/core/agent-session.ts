@@ -65,6 +65,7 @@ import {
 	estimateTokens,
 	finalizeSummaryScope,
 	generateBranchSummary,
+	invalidateSummaryUsage,
 	prepareCompaction,
 	type SummarizationRequestConfig,
 	shouldCompact,
@@ -501,6 +502,8 @@ export class AgentSession {
 					const thinkingLevel = this.thinkingLevel;
 					const streamFn = this.agent.streamFunction;
 					const history = this.agent.state.messages.slice();
+					// Snapshot before hooks, including those that rewrite messages in place.
+					const originalMessages = convertToLlm(history).map((message) => JSON.stringify(message));
 					const tools = this.agent.state.tools.slice();
 					const routing = {
 						sessionId: this.agent.sessionId,
@@ -510,7 +513,7 @@ export class AgentSession {
 						thinkingBudgets: this.agent.thinkingBudgets,
 						maxRetryDelayMs: this.agent.maxRetryDelayMs,
 					};
-					const context = await prepareAgentContext(
+					let context = await prepareAgentContext(
 						{
 							systemPrompt: start.systemPrompt,
 							messages: [...history, ...start.messages],
@@ -519,6 +522,10 @@ export class AgentSession {
 						this.agent,
 						signal,
 					);
+					const changedIndex = context.messages.findIndex(
+						(message, index) => JSON.stringify(message) !== originalMessages[index],
+					);
+					if (changedIndex !== -1) context = invalidateSummaryUsage(context, changedIndex);
 					signal?.throwIfAborted();
 					const auth = await this._getSummarizationRequestAuth(model, streamFn);
 					return {

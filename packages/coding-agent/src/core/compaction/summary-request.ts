@@ -202,7 +202,13 @@ export function fitSummaryRequestContext(baseContext: Context, contextWindow: nu
 	}
 
 	// Later usage describes the unshortened prefix and would incorrectly clamp summary output.
-	for (let i = firstShortenedIndex + 1; i < context.messages.length; i++) {
+	return invalidateSummaryUsage(context, firstShortenedIndex + 1);
+}
+
+/** Clear usage at and after a changed prefix without touching canonical session accounting. */
+export function invalidateSummaryUsage(baseContext: Context, fromIndex: number): Context {
+	const context = { ...baseContext, messages: baseContext.messages.slice() };
+	for (let i = fromIndex; i < context.messages.length; i++) {
 		const message = context.messages[i];
 		if (message.role !== "assistant") continue;
 		context.messages[i] = {
