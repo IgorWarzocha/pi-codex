@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Enabled strict-prefer JSON-schema sampling by default for built-in `read`, `bash`, `powershell`, `edit`, and `write` tools, without requiring `PI_EXPERIMENTAL`. Extensions can re-register tool definitions with `constrainedSampling: false`.
+
+### Fixed
+
+- Fixed premature missing-model errors after login by waiting for catalog discovery. Radius now defaults to `balanced`, falling back to the first available Radius model when needed.
+
 ## [0.85.1] - 2026-09-05
 
 ### New Features
